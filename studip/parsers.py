@@ -1,8 +1,7 @@
-import requests, re
-from html.parser import HTMLParser
-from enum import IntEnum
+import re
 import urllib.parse as urlparse
 from datetime import datetime
+
 from bs4 import BeautifulSoup
 
 from .database import Semester, Course, SyncMode, File
@@ -28,81 +27,27 @@ class ParserError(Exception):
         return "ParserError({})".format(repr(self.message))
 
 
-class StopParsing(Exception):
-    pass
-
-
-def create_parser_and_feed(parser_class, html):
-    parser = parser_class()
-    try:
-        parser.feed(html)
-    except StopParsing:
-        pass
-
-    return parser
-
-
-class LoginFormParser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.post_url = None
-
-    def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs)
-        if tag == "form" and "action" in attrs:
-            self.post_url = attrs["action"]
-            raise StopParsing
-
-    def is_complete(self):
-        return self.post_url is not None
-
-
 def parse_login_form(html):
-    parser = create_parser_and_feed(LoginFormParser, html)
-    if parser.is_complete():
-        return parser
-    else:
-        raise ParserError("LoginForm")
+    soup = BeautifulSoup(html, 'lxml')
 
-
-class SAMLFormParser(HTMLParser):
-    fields = ["RelayState", "SAMLResponse"]
-
-    def __init__(self):
-        super().__init__()
-        self.form_data = {}
-        self.in_error_p = False
-        self.error = None
-
-    def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs)
-        if tag == "p" and "class" in attrs and "form-error" in attrs["class"]:
-            self.in_error_p = True
-        elif tag == "input" and "name" in attrs and "value" in attrs:
-            if attrs["name"] in SAMLFormParser.fields:
-                self.form_data[attrs["name"]] = attrs["value"]
-
-        if self.is_complete():
-            raise StopParsing
-
-    def handle_endtag(self, tag):
-        if tag == "p":
-            self.in_error_p = False
-
-    def handle_data(self, data):
-        if self.in_error_p:
-            self.error = data
-
-    def is_complete(self):
-        return all(f in self.form_data for f in SAMLFormParser.fields)
+    for form in soup.find_all('form'):
+        if 'action' in form.attrs:
+            return form.attrs['action']
+    raise ParserError("LoginForm")
 
 
 def parse_saml_form(html):
-    parser = create_parser_and_feed(SAMLFormParser, html)
-    if parser.is_complete():
-        return parser.form_data
-    else:
-        raise ParserError(parser.error)
+    soup = BeautifulSoup(html, 'lxml')
+    saml_fields = ['RelayState', 'SAMLResponse']
+    form_data = {}
+    p = soup.find('p')
+    if 'class' in p.attrs and 'form-error' in p.attrs['class']:
+        raise ParserError('Error in Request')
+    for input in soup.find_all('input'):
+        if 'name' in input.attrs and 'value' in input.attrs and input.attrs['name'] in saml_fields:
+            form_data[input.attrs['name']] = input.attrs['value']
+
+    return form_data
 
 
 def parse_semester_list(html):
@@ -119,81 +64,6 @@ def parse_semester_list(html):
         sem.order = len(semesterlist) - 1 - i
 
     return semesterlist
-
-    # parser = create_parser_and_feed(SemesterListParser, html)
-    # for i, sem in enumerate(parser.semesters):
-    #     sem.order = len(parser.semesters) - 1 - i
-    # return parser
-
-
-class CourseListParser(HTMLParser):
-    State = IntEnum("State", "before_sem before_thead_end table_caption before_tr "
-                             "tr td_group td_img td_id td_name after_td a_name")
-
-    def __init__(self):
-        super().__init__()
-        State = CourseListParser.State
-        self.state = State.before_sem
-        self.courses = []
-        self.current_id = None
-        self.current_number = None
-        self.current_name = None
-
-    def handle_starttag(self, tag, attrs):
-        State = CourseListParser.State
-        if self.state == State.before_sem:
-            if tag == "div" and ("id", "my_seminars") in attrs:
-                self.state = State.before_thead_end
-        elif self.state == State.before_thead_end:
-            if tag == "caption":
-                self.state = State.table_caption
-                self.current_semester = ""
-        elif self.state == State.before_tr and tag == "tr":
-            self.state = State.tr
-            self.current_url = self.current_number = self.current_name = ""
-        elif tag == "td" and self.state in [State.tr, State.td_group, State.td_img, State.td_id,
-                                            State.td_name]:
-            self.state = State(int(self.state) + 1)
-        elif self.state == State.td_name and tag == "a":
-            attrs = dict(attrs)
-            self.current_id = get_url_field(attrs["href"], "auswahl")
-            self.state = State.a_name
-
-    def handle_endtag(self, tag):
-        State = CourseListParser.State
-        if tag == "div" and self.state != State.before_sem:
-            raise StopParsing
-        elif self.state == State.before_thead_end:
-            if tag == "thead":
-                self.state = State.before_tr
-        elif self.state == State.table_caption:
-            if tag == "caption":
-                self.state = State.before_thead_end
-        elif self.state == State.a_name:
-            if tag == "a":
-                self.state = State.td_name
-        elif self.state == State.after_td:
-            if tag == "tr":
-                full_name = compact(self.current_name)
-                name, type = COURSE_NAME_TYPE_RE.match(full_name).groups()
-                match = DUPLICATE_TYPE_RE.match(name)
-                if match:
-                    type = match.group("type")
-                    name = match.group("name")
-                self.courses.append(Course(id=self.current_id,
-                                           semester=compact(self.current_semester),
-                                           number=compact(self.current_number),
-                                           name=name, type=type, sync=SyncMode.NoSync))
-                self.state = State.before_tr
-
-    def handle_data(self, data):
-        State = CourseListParser.State
-        if self.state == State.td_id:
-            self.current_number += data
-        elif self.state == State.a_name:
-            self.current_name += data
-        elif self.state == State.table_caption:
-            self.current_semester += data
 
 
 def parse_course_list(html):
@@ -224,22 +94,6 @@ def parse_course_list(html):
                                                      name=name, type=type, sync=SyncMode.NoSync))
                             break
     return courselist
-
-
-class OverviewParser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.locations = {}
-
-    def handle_starttag(self, tag, attrs):
-        if tag == "a":
-            attrs = dict(attrs)
-            if "href" in attrs and "folder.php" in attrs["href"]:
-                self.locations["folder_url"] = attrs["href"]
-
-
-def parse_overview(html):
-    return create_parser_and_feed(OverviewParser, html).locations
 
 
 def parse_file_list(html):

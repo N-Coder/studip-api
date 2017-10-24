@@ -1,17 +1,14 @@
-import os, time, threading, ctypes
-
-from requests import session, RequestException, Timeout
-from urllib.parse import urlencode
+import os
+import time
 from os import path
-from threading import Thread, Condition, Lock
-from copy import deepcopy
-from enum import IntEnum
+from urllib.parse import urlencode
 
-from .parsers import *
-from .database import SyncMode
-from .util import prompt_choice, ellipsize, escape_file_name, \
-    abbreviate_course_name, abbreviate_course_type
+import requests
+from requests import RequestException, Timeout
+
 from .async import ThreadPool
+from .parsers import *
+from .util import prompt_choice, ellipsize, abbreviate_course_name, abbreviate_course_type
 
 
 class SessionError(Exception):
@@ -65,13 +62,13 @@ class Session:
             raise_fetch_error("login page", e)
 
         try:
-            form_data = parse_login_form(r.text)
+            post_url = parse_login_form(r.text)
         except ParserError:
             raise LoginError("Error parsing login page")
 
         try:
             r = self.http.post(
-                self.sso_url(form_data.post_url),
+                self.sso_url(post_url),
                 data={
                     "j_username": user_name,
                     "j_password": password,

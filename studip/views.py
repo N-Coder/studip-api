@@ -1,7 +1,7 @@
-import os,time, re
-
+import os
 from os import path
 
+from studip.session import SessionError
 from .util import ellipsize, escape_file_name, lexicalise_semester
 
 
@@ -18,7 +18,7 @@ class ViewSynchronizer:
         # Find all known files that have been fetched into .studip/files
         fetched_files = []
         for file in self.db.list_files(full=True, select_sync_metadata_only=False,
-                select_sync_no=False):
+                                       select_sync_no=False):
             file_name = file.id
             if file.version > 0:
                 file_name += "." + str(file.version)
@@ -62,7 +62,7 @@ class ViewSynchronizer:
         if not self.view:
             raise SessionError("View does not exist")
 
-        modified_folders = set() 
+        modified_folders = set()
         copyrighted_files = []
 
         fs_escape = lambda str: escape_file_name(str, self.view.charset, self.view.escape)
@@ -81,7 +81,7 @@ class ViewSynchronizer:
 
                 descr_no_ext = file.description
                 if descr_no_ext.endswith("." + file.extension):
-                    descr_no_ext = descr_no_ext[:-1-len(file.extension)]
+                    descr_no_ext = descr_no_ext[:-1 - len(file.extension)]
 
                 short_path = file.path
                 if short_path[0] == "Allgemeiner Dateiordner":
@@ -90,7 +90,7 @@ class ViewSynchronizer:
                 extension = ("." + file.extension) if file.extension else ""
                 if file.version > 0:
                     extension = fs_escape(" (StudIP Version {})".format(file.version + 1)) \
-                            + extension
+                                + extension
 
                 tokens = {
                     "semester": fs_escape(file.course_semester),
@@ -119,7 +119,7 @@ class ViewSynchronizer:
                 while folder:
                     modified_folders.add(folder)
                     folder = path.dirname(folder)
-                
+
                 abs_path = path.join(self.view_dir, rel_path)
                 if not path.isfile(abs_path):
                     pending_files.append((file, rel_path, abs_path))
@@ -129,8 +129,8 @@ class ViewSynchronizer:
                 if first_file:
                     print()
                     first_file = False
-                print("Checking out file {}/{}: {}...".format(i+1, len(pending_files),
-                        ellipsize(file.description, 50)))
+                print("Checking out file {}/{}: {}...".format(i + 1, len(pending_files),
+                                                              ellipsize(file.description, 50)))
 
                 if file.copyrighted:
                     copyrighted_files.append(rel_path)
@@ -167,17 +167,17 @@ class ViewSynchronizer:
             update_directory_mtime(self.sync_dir)
 
             if copyrighted_files:
-                print("\n" + "-"*80)
+                print("\n" + "-" * 80)
                 print("The following files have special copyright notices:\n")
                 for file in copyrighted_files:
                     print("  -", file)
                 print("\nPlease make sure you have looked up, read and understood the terms and"
-                        " conditions of these files before proceeding to use them.")
-                print("-"*80 + "\n")
+                      " conditions of these files before proceeding to use them.")
+                print("-" * 80 + "\n")
 
         # Create course folders for all courses that do not have files yet
         for course in self.db.list_courses(full=True, select_sync_metadata_only=False,
-                select_sync_no=False):
+                                           select_sync_no=False):
             # Construct a dummy file for extracting the fromatted path
             tokens = {
                 "semester": fs_escape(course.semester),
@@ -204,9 +204,8 @@ class ViewSynchronizer:
             try:
                 os.makedirs(path.dirname(abs_path), exist_ok=False)
                 print("Created folder for empty {} {}".format(course.type, course.name))
-            except OSError: # Folder already exists
+            except OSError:  # Folder already exists
                 pass
-
 
     def remove(self):
         if not self.view:
@@ -237,17 +236,16 @@ class ViewSynchronizer:
 
         # Remove empty directories
         for dir in directories:
-            if not any (d.startswith(dir) for d in directories_to_keep):
+            if not any(d.startswith(dir) for d in directories_to_keep):
                 os.rmdir(dir)
 
         if directories_to_keep:
             print("The following directories contain unmanaged files and were kept:\n  - "
-                    + "\n  - ".join(directories_to_keep))
-        elif self.view_dir in directories and self.view.base: # Do not remove root dir
+                  + "\n  - ".join(directories_to_keep))
+        elif self.view_dir in directories and self.view.base:  # Do not remove root dir
             os.rmdir(self.view_dir)
 
         self.view = None
-
 
     def reset_deleted(self):
         if not self.view:
@@ -255,4 +253,3 @@ class ViewSynchronizer:
 
         self.db.reset_checkouts(self.view.id)
         self.db.commit()
-
