@@ -13,19 +13,20 @@ if __name__ == "__main__":
         long_descr = f.read().decode("utf-8")
 
     setup(
-        name = "studip-client",
-        packages = ["studip"],
-        entry_points = {
-            "console_scripts": [ "studip = studip.application:main" ]
+        name="studip-client",
+        packages=["studip"],
+        entry_points={
+            "console_scripts": ["studip = studip.application:main"]
         },
-        include_package_data = True,
-        install_requires = [
+        include_package_data=True,
+        install_requires=[
             "requests",
-            "appdirs"
+            "appdirs",
+            "bs4"
         ],
-        version = version,
-        description = "CLI Client for the Stud.IP University Access Portal",
-        long_description = long_descr,
-        author = "Fabian Knorr",
-        url = "https://github.com/fknorr/studip-client"
+        version=version,
+        description="CLI Client for the Stud.IP University Access Portal",
+        long_description=long_descr,
+        author="Fabian Knorr",
+        url="https://github.com/fknorr/studip-client"
     )

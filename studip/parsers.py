@@ -54,11 +54,10 @@ def parse_semester_list(html):
     semester_list = []
     soup = BeautifulSoup(html, 'lxml')
 
-    for item in soup.find_all('select'):
-        if item.attrs['name'] == 'sem_select':
-            optgroup = item.find('optgroup')
-            for option in optgroup.find_all('option'):
-                semester_list.append(Semester(option.attrs['value'], name=compact(option.contents[0])))
+    for item in soup.find_all('select', {'name': 'sem_select'}):
+        optgroup = item.find('optgroup')
+        for option in optgroup.find_all('option'):
+            semester_list.append(Semester(option.attrs['value'], name=compact(option.contents[0])))
 
     for i, sem in enumerate(semester_list):
         sem.order = len(semester_list) - 1 - i
@@ -71,28 +70,27 @@ def parse_course_list(html):
     soup = BeautifulSoup(html, 'lxml')
     current_number = None
 
-    for item in soup.find_all('div'):
-        if 'id' in item.attrs and item.attrs['id'] == 'my_seminars':
-            semester = item.find('caption').contents[0]
-            for tr in item.find_all('tr'):
-                if 'class' not in tr.attrs:
-                    for td in tr.find_all('td'):
-                        if len(td.attrs) == 0 and len(td.find_all()) == 0 and len(td.contents) > 0:
-                            current_number = td.contents[0]
+    for item in soup.find_all('div', {'id': 'my_seminars'}):
+        semester = item.find('caption').contents[0]
+        for tr in item.find_all('tr'):
+            if 'class' not in tr.attrs:
+                for td in tr.find_all('td'):
+                    if len(td.attrs) == 0 and len(td.find_all()) == 0 and len(td.contents) > 0:
+                        current_number = td.contents[0]
 
-                        if td.find('a') is not None:
-                            link = td.find('a')
-                            full_name = compact(link.contents[0])
-                            name, type = COURSE_NAME_TYPE_RE.match(full_name).groups()
-                            match = DUPLICATE_TYPE_RE.match(name)
-                            if match:
-                                type = match.group("type")
-                                name = match.group("name")
-                            course_list.append(Course(id=compact(get_url_field(link['href'], 'auswahl')),
-                                                     semester=compact(semester),
-                                                     number=current_number,
-                                                     name=name, type=type, sync=SyncMode.NoSync))
-                            break
+                    if td.find('a') is not None:
+                        link = td.find('a')
+                        full_name = compact(link.contents[0])
+                        name, course_type = COURSE_NAME_TYPE_RE.match(full_name).groups()
+                        match = DUPLICATE_TYPE_RE.match(name)
+                        if match:
+                            course_type = match.group("type")
+                            name = match.group("name")
+                        course_list.append(Course(id=compact(get_url_field(link['href'], 'auswahl')),
+                                                  semester=compact(semester),
+                                                  number=current_number,
+                                                  name=name, type=course_type, sync=SyncMode.NoSync))
+                        break
     return course_list
 
 
@@ -113,7 +111,7 @@ def parse_file_list(html):
                                 try:
                                     date = datetime.strptime(date_str, "%d.%m.%Y %H:%M:%S")
                                     break
-                                except:
+                                except ValueError:
                                     pass
                         file_meta.append((file_id, date))
     return file_meta
@@ -143,38 +141,35 @@ def parse_file_details(course_id, html):
 
     file.path = '.'
     for caption in soup.find_all('caption'):
-        div = caption.find('div')
-        if 'class' in div.attrs and div.attrs['class'][0] == 'caption-container':
-            path = ''
-            for link in div.contents[0].find_all('a'):
-                path.join(link.contents[0])
-            file.path = path.replace(' ', '').split(sep='/')
+        div = caption.find('div', {'class': 'caption-container'})
+        path = ''
+        for link in div.contents[0].find_all('a'):
+            path.join(link.contents[0])
+        file.path = path.replace(' ', '').split(sep='/')
 
-    for li in soup.find_all('li'):
-        if 'class' in li.attrs and li.attrs['class'][0] == 'action-menu-item':
-            img = li.find('img')
-            if 'alt' not in img.attrs or img.attrs['alt'] != 'info-circle':
-                continue
+    for li in soup.find_all('li', {'class': 'action-menu-item'}):
+        img = li.find('img')
+        if 'alt' not in img.attrs or img.attrs['alt'] != 'info-circle':
+            continue
 
-            link = li.find('a')
-            if 'href' in link.attrs:
-                file.description_url = link.attrs['href']
-                break
+        link = li.find('a')
+        if 'href' in link.attrs:
+            file.description_url = link.attrs['href']
+            break
 
     file.course = course_id
     return file
 
 
-def parse_file_desciption(file, html):
+def parse_file_description(file, html):
     soup = BeautifulSoup(html, 'lxml')
     i = 0
     for td in soup.find_all('td'):
         if i == 7:
             file.author = compact(td.find('a').contents[0])
         i += 1
-    for div in soup.find_all('div'):
-        if 'id' in div.attrs and div.attrs['id'] == 'preview_container':
-            file.description = div.find('article').contents[0]
+    for div in soup.find_all('div', {'id': 'preview_container'}):
+        file.description = div.find('article').contents[0]
     if file.complete():
         return file
     else:

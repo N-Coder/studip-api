@@ -200,7 +200,7 @@ class Session:
 
                     desc = self.http.get(file.description_url)
                     try:
-                        file = parse_file_desciption(file, desc.text)
+                        file = parse_file_description(file, desc.text)
                     except ParserError:
                         raise SessionError("Unable to parse file details")
 
