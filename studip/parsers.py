@@ -51,23 +51,23 @@ def parse_saml_form(html):
 
 
 def parse_semester_list(html):
-    semesterlist = []
+    semester_list = []
     soup = BeautifulSoup(html, 'lxml')
 
     for item in soup.find_all('select'):
         if item.attrs['name'] == 'sem_select':
             optgroup = item.find('optgroup')
             for option in optgroup.find_all('option'):
-                semesterlist.append(Semester(option.attrs['value'], name=compact(option.contents[0])))
+                semester_list.append(Semester(option.attrs['value'], name=compact(option.contents[0])))
 
-    for i, sem in enumerate(semesterlist):
-        sem.order = len(semesterlist) - 1 - i
+    for i, sem in enumerate(semester_list):
+        sem.order = len(semester_list) - 1 - i
 
-    return semesterlist
+    return semester_list
 
 
 def parse_course_list(html):
-    courselist = []
+    course_list = []
     soup = BeautifulSoup(html, 'lxml')
     current_number = None
 
@@ -88,12 +88,12 @@ def parse_course_list(html):
                             if match:
                                 type = match.group("type")
                                 name = match.group("name")
-                            courselist.append(Course(id=compact(get_url_field(link['href'], 'auswahl')),
+                            course_list.append(Course(id=compact(get_url_field(link['href'], 'auswahl')),
                                                      semester=compact(semester),
                                                      number=current_number,
                                                      name=name, type=type, sync=SyncMode.NoSync))
                             break
-    return courselist
+    return course_list
 
 
 def parse_file_list(html):
