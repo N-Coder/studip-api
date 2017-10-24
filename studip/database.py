@@ -18,7 +18,7 @@ class Semester:
 
 class Course:
     def __init__(self, id, semester=None, number=None, name=None, abbrev=None, type=None,
-            type_abbrev=None, sync=None):
+                 type_abbrev=None, sync=None):
         self.id = id
         self.semester = semester
         self.number = number
@@ -58,9 +58,9 @@ class Course:
 
 class File:
     def __init__(self, id, course=None, course_semester=None, course_name=None, course_abbrev=None,
-            course_type=None, course_type_abbrev=None, path=None, name=None, extension=None,
-            author=None, description=None, remote_date=None, copyrighted=False, local_date=None,
-            version=None):
+                 course_type=None, course_type_abbrev=None, path=None, name=None, extension=None,
+                 author=None, description=None, description_url=None, remote_date=None, copyrighted=False,
+                 local_date=None, version=None):
         self.id = id
         self.course = course
         self.course_semester = course_semester
@@ -73,7 +73,7 @@ class File:
         self.extension = extension
         self.author = author
         self.description = description
-        self.description_url = None
+        self.description_url = description_url
         self.remote_date = remote_date
         self.copyrighted = copyrighted
         self.local_date = local_date
@@ -86,7 +86,7 @@ class File:
     @property
     def course_type_abbrev(self):
         return self._course_type_abbrev if self._course_type_abbrev \
-                else abbreviate_course_type(self.course_type)
+            else abbreviate_course_type(self.course_type)
 
     def complete(self):
         return self.id and self.course and self.path and self.name and self.remote_date
@@ -105,7 +105,7 @@ class Folder:
 
 class View:
     def __init__(self, id, name=None, format="{course}/{type}/{short-path}/{name}{ext}",
-            base=None, escape=EscapeMode.Similar, charset=Charset.Unicode):
+                 base=None, escape=EscapeMode.Similar, charset=Charset.Unicode):
         self.id = id
         self.name = name
         self.format = format
@@ -119,6 +119,7 @@ class View:
 
 class DatabaseVersionError(Exception):
     pass
+
 
 class QueryError(Exception):
     pass
@@ -136,7 +137,7 @@ class Database:
         connect(self)
         db_version, = self.query("PRAGMA user_version", expected_rows=1)[0]
         if db_version < self.schema_version:
-            if db_version in [ 9, 11 ]:
+            if db_version in [9, 11]:
                 # Disconnect and reconnect to create a backup
                 self.conn.close()
                 base_name, ext = os.path.splitext(file_name)
@@ -150,22 +151,22 @@ class Database:
                     self.query_script_file("migrate-11-12.sql")
 
                 print("Migrated database from version {} to {}, backup saved to {}".format(
-                        db_version, self.schema_version, backup_file))
+                    db_version, self.schema_version, backup_file))
             elif db_version != 0:
                 print("Could not migrate database. Run \"studip clear-cache\" to reset DB. " \
-                        + "This will reset all views.")
+                      + "This will reset all views.")
                 self.conn.close()
                 raise DatabaseVersionError()
 
             self.query("PRAGMA user_version = " + str(self.schema_version), expected_rows=0)
 
-            if db_version == 0: # Empty database
+            if db_version == 0:  # Empty database
                 # Create all tables, views and triggers
                 self.query_script_file("setup.sql")
                 self.add_view(View(0, "default"))
         elif db_version > self.schema_version:
             print("The client database was created by a more recent version of studip-client" \
-                    + " - please update or run \"studip clear-cache\"")
+                  + " - please update or run \"studip clear-cache\"")
             self.conn.close()
             raise DatabaseVersionError()
 
@@ -188,12 +189,11 @@ class Database:
             rows = cursor.fetchmany(expected_rows)
             if len(rows) < expected_rows:
                 raise QueryError("Expected at least {} rows, got {}".format(
-                        expected_rows, len(rows)))
+                    expected_rows, len(rows)))
             return rows
 
     def query_script(self, sql):
         return self.conn.cursor().executescript(sql)
-
 
     def query_script_file(self, name):
         script_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "sql")
@@ -201,10 +201,8 @@ class Database:
             init_script = file.read()
         return self.query_script(init_script)
 
-
     def query_multiple(self, sql, args):
         self.conn.cursor().executemany(sql, args)
-
 
     def update_semester_list(self, semesters):
         self.query_multiple("""
@@ -212,12 +210,12 @@ class Database:
                 VALUES (:id, :name, :order)
             """, (s.__dict__ for s in semesters))
 
-
     def list_courses(self, full=False, select_sync_yes=True, select_sync_metadata_only=True,
-            select_sync_no=True):
-        sync_modes = [ str(int(enum)) for enable, enum in [ (select_sync_yes, SyncMode.Full),
-                (select_sync_metadata_only, SyncMode.Metadata), (select_sync_no, SyncMode.NoSync) ]
-                if enable ]
+                     select_sync_no=True):
+        sync_modes = [str(int(enum)) for enable, enum in [(select_sync_yes, SyncMode.Full),
+                                                          (select_sync_metadata_only, SyncMode.Metadata),
+                                                          (select_sync_no, SyncMode.NoSync)]
+                      if enable]
 
         if full:
             rows = self.query("""
@@ -227,16 +225,15 @@ class Database:
                 WHERE c.sync IN ({})
                 ORDER BY c.name, c.type;
             """.format(", ".join(sync_modes)))
-            return [ Course(i, s, n, a, b, t, u, SyncMode(sync))
-                    for i, s, n, a, b, t, u, sync in rows ]
+            return [Course(i, s, n, a, b, t, u, SyncMode(sync))
+                    for i, s, n, a, b, t, u, sync in rows]
         else:
             rows = self.query("""
                 SELECT id FROM courses
                 WHERE sync IN ({})
                 ORDER BY name;
             """.format(", ".join(sync_modes)))
-            return [ id for (id,) in rows ]
-
+            return [id for (id,) in rows]
 
     def get_course_details(self, course_id):
         rows = self.query("""
@@ -247,8 +244,7 @@ class Database:
             """, id=course_id, expected_rows=1)
         semester, number, name, abbrev, type, type_abbrev, sync = rows[0]
         return Course(id=course_id, semester=semester, number=number, name=name,
-                abbrev=abbrev, type=type, type_abbrev=type_abbrev, sync=SyncMode(sync))
-
+                      abbrev=abbrev, type=type, type_abbrev=type_abbrev, sync=SyncMode(sync))
 
     def add_course(self, course):
         self.query("""
@@ -256,9 +252,8 @@ class Database:
                 VALUES (:id, (SELECT id FROM semesters WHERE name = :sem), :num, :name, :abbrev,
                     :type, :tabbrev, :sync);
             """, id=course.id, sem=course.semester, num=course.number, name=course.name,
-                abbrev=course._abbrev, type=course.type, tabbrev=course._type_abbrev,
-                sync=int(course.sync), expected_rows=0)
-
+                   abbrev=course._abbrev, type=course.type, tabbrev=course._type_abbrev,
+                   sync=int(course.sync), expected_rows=0)
 
     def update_course(self, course):
         self.query("""
@@ -267,9 +262,8 @@ class Database:
                     sync=:sync
                 WHERE id=:id;
             """, id=course.id, num=course.number, name=course.name, abbrev=course.abbrev,
-                type=course.type, type_abbrev=course.type_abbrev, sync=int(course.sync),
-                expected_rows=0)
-
+                   type=course.type, type_abbrev=course.type_abbrev, sync=int(course.sync),
+                   expected_rows=0)
 
     def delete_course(self, course):
         self.query("""
@@ -277,13 +271,13 @@ class Database:
                 WHERE id = :id;
             """, id=course.id, expected_rows=0)
 
-
     def list_files(self, full=False, select_sync_yes=True, select_sync_metadata_only=True,
-            select_sync_no=True):
+                   select_sync_no=True):
         Mode = SyncMode
-        sync_modes = [ str(int(enum)) for enable, enum in [ (select_sync_yes, SyncMode.Full),
-                (select_sync_metadata_only, SyncMode.Metadata), (select_sync_no, SyncMode.NoSync) ]
-                if enable ]
+        sync_modes = [str(int(enum)) for enable, enum in [(select_sync_yes, SyncMode.Full),
+                                                          (select_sync_metadata_only, SyncMode.Metadata),
+                                                          (select_sync_no, SyncMode.NoSync)]
+                      if enable]
 
         if full:
             rows = self.query("""
@@ -294,8 +288,8 @@ class Database:
                     WHERE sync IN ({});
                 """.format(", ".join(sync_modes)))
             # Path is encoded as the string representation of a python list
-            return [ File(i, j, s, c, b, o, u, ast.literal_eval(path), n, e, a, d, t, y, l, v)
-                    for i, j, s, c, b, o, u, path, n, e, a, d, t, y, l, v in rows ]
+            return [File(i, j, s, c, b, o, u, ast.literal_eval(path), n, e, a, d, t, y, l, v)
+                    for i, j, s, c, b, o, u, path, n, e, a, d, t, y, l, v in rows]
 
         else:
             rows = self.query("""
@@ -304,7 +298,6 @@ class Database:
                     WHERE sync IN ({});
                 """.format(", ".join(sync_modes)))
             return [id for (id,) in rows]
-
 
     def create_parent_for_file(self, file):
         rows = self.query("""
@@ -331,7 +324,6 @@ class Database:
 
         return parent
 
-
     def add_file(self, file):
         parent = self.create_parent_for_file(file)
         self.query("""
@@ -339,9 +331,8 @@ class Database:
                     copyrighted, local_date, version)
                 VALUES (:id, :par, :name, :ext, :auth, :descr, :creat, :copy, :local, 0);
             """, id=file.id, par=parent, name=file.name, ext=file.extension, auth=file.author,
-                descr=file.description, creat=file.remote_date, copy=file.copyrighted,
-                local=file.local_date, expected_rows=0)
-
+                   descr=file.description, creat=file.remote_date, copy=file.copyrighted,
+                   local=file.local_date, expected_rows=0)
 
     def update_file(self, file):
         parent = self.create_parent_for_file(file)
@@ -352,13 +343,12 @@ class Database:
                     local_date = :local, version = version + 1
                 WHERE id = :id;
             """, id=file.id, par=parent, name=file.name, ext=file.extension, auth=file.author,
-                descr=file.description, creat=file.remote_date, copy=file.copyrighted,
-                local=file.local_date, expected_rows=0)
+                   descr=file.description, creat=file.remote_date, copy=file.copyrighted,
+                   local=file.local_date, expected_rows=0)
         self.query("""
                 DELETE FROM checkouts
                 WHERE file=:id
             """, id=file.id, expected_rows=0)
-
 
     def update_file_local_date(self, file):
         self.query("""
@@ -367,7 +357,6 @@ class Database:
                 WHERE id = :id
             """, id=file.id, local=file.local_date, expected_rows=0)
 
-
     def list_views(self, full=False):
         if full:
             rows = self.query("""
@@ -375,15 +364,14 @@ class Database:
                     FROM views
                     ORDER BY name;
                 """)
-            return [ View(i, n, f, b, EscapeMode(e), Charset(c)) for i, n, f, b, e, c in rows ]
+            return [View(i, n, f, b, EscapeMode(e), Charset(c)) for i, n, f, b, e, c in rows]
         else:
             rows = self.query("""
                     SELECT id
                     FROM views
                     ORDER BY name;
                 """)
-            return [ id for id, in rows ]
-
+            return [id for id, in rows]
 
     def get_view_details(self, id):
         rows = self.query("""
@@ -394,13 +382,12 @@ class Database:
         n, f, e, c = rows[0]
         return View(id, n, f, EscapeMode(e), Charset(c))
 
-
     def add_view(self, view):
         self.query("""
                 INSERT INTO views (id, name, format, base, esc_mode, charset)
                 VALUES (:id, :name, :fmt, :base, :esc, :char)
             """, id=view.id, name=view.name, fmt=view.format, base=view.base, esc=view.escape,
-            char=view.charset, expected_rows=0)
+                   char=view.charset, expected_rows=0)
 
     def remove_view(self, id):
         self.query("""
@@ -413,7 +400,7 @@ class Database:
                 SELECT file FROM checkouts
                 WHERE view=:view
             """, view=view_id)
-        return [ id for id, in rows ]
+        return [id for id, in rows]
 
     def add_checkout(self, view_id, file_id):
         self.query("""
@@ -429,4 +416,3 @@ class Database:
 
     def commit(self):
         self.conn.commit()
-
