@@ -73,6 +73,7 @@ class File:
         self.extension = extension
         self.author = author
         self.description = description
+        self.description_url = None
         self.remote_date = remote_date
         self.copyrighted = copyrighted
         self.local_date = local_date
@@ -176,7 +177,10 @@ class Database:
             else:
                 raise ValueError("Pass either positional or keyword arguments")
         elif kwargs:
-            cursor.execute(sql, dict(**kwargs))
+            try:
+                cursor.execute(sql, dict(**kwargs))
+            except sqlite3.IntegrityError:
+                pass
         else:
             cursor.execute(sql)
 

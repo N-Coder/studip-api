@@ -3,13 +3,14 @@ from html.parser import HTMLParser
 from enum import IntEnum
 import urllib.parse as urlparse
 from datetime import datetime
+from bs4 import BeautifulSoup
 
 from .database import Semester, Course, SyncMode, File
 from .util import compact
 
 DUPLICATE_TYPE_RE = re.compile(r'^(?P<type>(Plenarü|Tutorü|Ü)bung(en)?|Tutorium|Praktikum'
-        + r'|(Obers|Haupts|S)eminar|Lectures?|Exercises?)(\s+(f[oü]r|on|zu[rm]?|i[nm]|auf))?'
-        + r'\s+(?P<name>.+)')
+                               + r'|(Obers|Haupts|S)eminar|Lectures?|Exercises?)(\s+(f[oü]r|on|zu[rm]?|i[nm]|auf))?'
+                               + r'\s+(?P<name>.+)')
 COURSE_NAME_TYPE_RE = re.compile(r'(.*?)\s*\(\s*([^)]+)\s*\)\s*$')
 
 
@@ -55,6 +56,7 @@ class LoginFormParser(HTMLParser):
     def is_complete(self):
         return self.post_url is not None
 
+
 def parse_login_form(html):
     parser = create_parser_and_feed(LoginFormParser, html)
     if parser.is_complete():
@@ -64,7 +66,7 @@ def parse_login_form(html):
 
 
 class SAMLFormParser(HTMLParser):
-    fields = [ "RelayState", "SAMLResponse" ]
+    fields = ["RelayState", "SAMLResponse"]
 
     def __init__(self):
         super().__init__()
@@ -94,6 +96,7 @@ class SAMLFormParser(HTMLParser):
     def is_complete(self):
         return all(f in self.form_data for f in SAMLFormParser.fields)
 
+
 def parse_saml_form(html):
     parser = create_parser_and_feed(SAMLFormParser, html)
     if parser.is_complete():
@@ -102,60 +105,30 @@ def parse_saml_form(html):
         raise ParserError(parser.error)
 
 
-class SemesterListParser(HTMLParser):
-    State = IntEnum("State", "outside select optgroup option")
-
-    def __init__(self):
-        super().__init__()
-        self.state = SemesterListParser.State.outside
-        self.semesters = []
-        self.selected = None
-        self.current_id = None
-        self.current_name = ""
-
-    def handle_starttag(self, tag, attrs):
-        State = SemesterListParser.State
-        if tag == "select":
-            attrs = dict(attrs)
-            if self.state == State.outside and "name" in attrs and attrs["name"] == "sem_select":
-                self.state = State.select
-        if tag == "optgroup" and self.state == State.select:
-            self.state = State.optgroup
-        if tag == "option":
-            attrs = dict(attrs)
-            if self.state == State.select and "selected" in attrs and "value" in attrs:
-                self.selected = attrs["value"]
-            elif self.state == State.optgroup and "value" in attrs:
-                self.current_id = attrs["value"]
-                self.state = State.option
-
-    def handle_endtag(self, tag):
-        State = SemesterListParser.State
-        if tag == "select" and self.state == State.select:
-            raise StopParsing()
-        if tag == "optgroup" and self.state == State.optgroup:
-            self.state = State.select
-        if tag == "option" and self.state == State.option:
-            self.state = State.optgroup
-            self.semesters.append(Semester(self.current_id, name=compact(self.current_name)))
-            self.current_name = ""
-
-    def handle_data(self, data):
-        State = SemesterListParser.State
-        if self.state == State.option:
-            self.current_name += data
-
-
 def parse_semester_list(html):
-    parser = create_parser_and_feed(SemesterListParser, html)
-    for i, sem in enumerate(parser.semesters):
-        sem.order = len(parser.semesters) - 1 - i
-    return parser
+    semesterlist = []
+    soup = BeautifulSoup(html, 'lxml')
+
+    for item in soup.find_all('select'):
+        if item.attrs['name'] == 'sem_select':
+            optgroup = item.find('optgroup')
+            for option in optgroup.find_all('option'):
+                semesterlist.append(Semester(option.attrs['value'], name=compact(option.contents[0])))
+
+    for i, sem in enumerate(semesterlist):
+        sem.order = len(semesterlist) - 1 - i
+
+    return semesterlist
+
+    # parser = create_parser_and_feed(SemesterListParser, html)
+    # for i, sem in enumerate(parser.semesters):
+    #     sem.order = len(parser.semesters) - 1 - i
+    # return parser
 
 
 class CourseListParser(HTMLParser):
     State = IntEnum("State", "before_sem before_thead_end table_caption before_tr "
-        "tr td_group td_img td_id td_name after_td a_name")
+                             "tr td_group td_img td_id td_name after_td a_name")
 
     def __init__(self):
         super().__init__()
@@ -178,8 +151,8 @@ class CourseListParser(HTMLParser):
         elif self.state == State.before_tr and tag == "tr":
             self.state = State.tr
             self.current_url = self.current_number = self.current_name = ""
-        elif tag == "td" and self.state in [ State.tr, State.td_group, State.td_img, State.td_id,
-                State.td_name ]:
+        elif tag == "td" and self.state in [State.tr, State.td_group, State.td_img, State.td_id,
+                                            State.td_name]:
             self.state = State(int(self.state) + 1)
         elif self.state == State.td_name and tag == "a":
             attrs = dict(attrs)
@@ -208,9 +181,9 @@ class CourseListParser(HTMLParser):
                     type = match.group("type")
                     name = match.group("name")
                 self.courses.append(Course(id=self.current_id,
-                        semester=compact(self.current_semester),
-                        number=compact(self.current_number),
-                        name=name, type=type, sync=SyncMode.NoSync))
+                                           semester=compact(self.current_semester),
+                                           number=compact(self.current_number),
+                                           name=name, type=type, sync=SyncMode.NoSync))
                 self.state = State.before_tr
 
     def handle_data(self, data):
@@ -222,8 +195,35 @@ class CourseListParser(HTMLParser):
         elif self.state == State.table_caption:
             self.current_semester += data
 
+
 def parse_course_list(html):
-    return create_parser_and_feed(CourseListParser, html).courses
+    courselist = []
+    soup = BeautifulSoup(html, 'lxml')
+    current_number = None
+
+    for item in soup.find_all('div'):
+        if 'id' in item.attrs and item.attrs['id'] == 'my_seminars':
+            semester = item.find('caption').contents[0]
+            for tr in item.find_all('tr'):
+                if 'class' not in tr.attrs:
+                    for td in tr.find_all('td'):
+                        if len(td.attrs) == 0 and len(td.find_all()) == 0 and len(td.contents) > 0:
+                            current_number = td.contents[0]
+
+                        if td.find('a') is not None:
+                            link = td.find('a')
+                            full_name = compact(link.contents[0])
+                            name, type = COURSE_NAME_TYPE_RE.match(full_name).groups()
+                            match = DUPLICATE_TYPE_RE.match(name)
+                            if match:
+                                type = match.group("type")
+                                name = match.group("name")
+                            courselist.append(Course(id=compact(get_url_field(link['href'], 'auswahl')),
+                                                     semester=compact(semester),
+                                                     number=current_number,
+                                                     name=name, type=type, sync=SyncMode.NoSync))
+                            break
+    return courselist
 
 
 class OverviewParser(HTMLParser):
@@ -237,77 +237,37 @@ class OverviewParser(HTMLParser):
             if "href" in attrs and "folder.php" in attrs["href"]:
                 self.locations["folder_url"] = attrs["href"]
 
+
 def parse_overview(html):
     return create_parser_and_feed(OverviewParser, html).locations
 
 
-class FileListParser(HTMLParser):
-    State = IntEnum("State", "outside file_0_div profile_a date_td")
-
-    def __init__(self):
-        super().__init__()
-        State = FileListParser.State
-        self.state = State.outside
-        self.div_depth = 0
-        self.file_meta = []
-        self.current_file_id = None
-        self.current_date = ""
-
-    def handle_starttag(self, tag, attrs):
-        State = FileListParser.State
-        if self.state == State.outside and tag == "div":
-            attrs = dict(attrs)
-            if "id" in attrs and attrs["id"].startswith("file_") and attrs["id"].endswith("_0"):
-                self.state = State.file_0_div
-                self.div_depth = 0
-        elif self.state == State.file_0_div:
-            attrs = dict(attrs)
-            if tag == "div":
-                self.div_depth += 1
-            if tag == "a" and "href" in attrs:
-                if "sendfile.php" in attrs["href"]:
-                    file_id = get_url_field(attrs["href"], "file_id")
-                    if file_id:
-                        self.current_file_id = file_id
-                elif "dispatch.php/profile" in attrs["href"]:
-                    self.state = State.profile_a
-
-    def handle_endtag(self, tag):
-        State = FileListParser.State
-        if tag == "div" and self.state == State.file_0_div:
-            if self.div_depth > 0:
-                self.div_depth -= 1
-            else:
-                file_id = self.current_file_id
-                date_str = compact(self.current_date)
-                date = None
-                if file_id and self.current_date:
-                    try:
-                        date = datetime.strptime(date_str, "%d.%m.%Y - %H:%M")
-                    except:
-                        pass
-                if file_id and date:
-                    self.file_meta.append((file_id, date))
-                self.current_file_id = None
-                self.current_date = ""
-                self.state = State.outside
-        elif tag == "a" and self.state == State.profile_a:
-            self.state = State.date_td
-        elif tag == "td" and self.state == State.date_td:
-            self.state = State.file_0_div
-
-    def handle_data(self, data):
-        State = FileListParser.State
-        if self.state == State.date_td:
-            self.current_date += data
-
 def parse_file_list(html):
-    return create_parser_and_feed(FileListParser, html).file_meta
+    soup = BeautifulSoup(html, 'lxml')
+    file_meta = []
+    for td in soup.find_all('td'):
+        if 'data-sort-value' in td.attrs:
+            for ele in td.contents:
+                if not isinstance(ele, str) and 'href' in ele.attrs and 'file_' in ele.attrs['href']:
+                    file_link = ele.attrs['href']
+                    if "sendfile.php" in file_link:
+                        file_id = get_url_field(file_link, "file_id")
+                        date = ''
+                        for other_tds in td.parent.find_all('td'):
+                            if 'title' in other_tds.attrs:
+                                date_str = other_tds.attrs['title']
+                                try:
+                                    date = datetime.strptime(date_str, "%d.%m.%Y %H:%M:%S")
+                                    break
+                                except:
+                                    pass
+                        file_meta.append((file_id, date))
+    return file_meta
 
 
 class FileDetailsParser(HTMLParser):
     State = IntEnum("State", "outside file_0_div in_header_span in_open_div in_folder_a "
-            "after_header_span in_origin_td in_author_a")
+                             "after_header_span in_origin_td in_author_a")
 
     def __init__(self):
         super().__init__()
@@ -355,7 +315,7 @@ class FileDetailsParser(HTMLParser):
 
     def handle_endtag(self, tag):
         State = FileDetailsParser.State
-        if tag == "div" and self.state in [ State.file_0_div, State.in_open_div ]:
+        if tag == "div" and self.state in [State.file_0_div, State.in_open_div]:
             if self.div_depth > 0:
                 self.div_depth -= 1
             elif self.file.id is not None:
@@ -385,9 +345,63 @@ class FileDetailsParser(HTMLParser):
         elif self.state == State.in_author_a:
             self.file.author = data
 
+
 def parse_file_details(course_id, html):
-    file = create_parser_and_feed(FileDetailsParser, html).file
+    file = File(None)
+    soup = BeautifulSoup(html, 'lxml')
+    for td in soup.find_all('td'):
+        if 'data-sort-value' in td.attrs:
+            for ele in td.contents:
+                if not isinstance(ele, str) and 'href' in ele.attrs and 'file_' in ele.attrs['href']:
+                    file_link = ele.attrs['href']
+                    if "sendfile.php" in file_link and 'zip=' not in file_link:
+                        file.id = get_url_field(file_link, "file_id")
+                        file_name_parts = get_url_field(file_link, "file_name").rsplit(".", 1)
+                        file.name = file_name_parts[0]
+                        file.extension = file_name_parts[1] if len(file_name_parts) > 1 else ""
+                        for other_tds in td.parent.find_all('td'):
+                            if 'title' in other_tds.attrs:
+                                date_str = other_tds.attrs['title']
+                                try:
+                                    file.remote_date = datetime.strptime(date_str, "%d.%m.%Y %H:%M:%S")
+                                    break
+                                except ValueError:
+                                    pass
+
+    file.path = '.'
+    for caption in soup.find_all('caption'):
+        div = caption.find('div')
+        if 'class' in div.attrs and div.attrs['class'][0] == 'caption-container':
+            path = ''
+            for link in div.contents[0].find_all('a'):
+                path.join(link.contents[0])
+            file.path = path.replace(' ', '').split(sep='/')
+
+    for li in soup.find_all('li'):
+        if 'class' in li.attrs and li.attrs['class'][0] == 'action-menu-item':
+            img = li.find('img')
+            if 'alt' not in img.attrs or img.attrs['alt'] != 'info-circle':
+                continue
+
+            link = li.find('a')
+            if 'href' in link.attrs:
+                file.description_url = link.attrs['href']
+                break
+
     file.course = course_id
+    return file
+
+
+def parse_file_desciption(file, html):
+    soup = BeautifulSoup(html, 'lxml')
+    i = 0
+    for td in soup.find_all('td'):
+        if i == 7:
+            file.author = compact(td.find('a').contents[0])
+        i += 1
+    for div in soup.find_all('div'):
+        if 'id' in div.attrs and div.attrs['id'] == 'preview_container':
+            file.description = div.find('article').contents[0]
     if file.complete():
         return file
     else:

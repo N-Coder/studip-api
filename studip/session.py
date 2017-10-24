@@ -10,12 +10,13 @@ from enum import IntEnum
 from .parsers import *
 from .database import SyncMode
 from .util import prompt_choice, ellipsize, escape_file_name, \
-        abbreviate_course_name, abbreviate_course_type
+    abbreviate_course_name, abbreviate_course_type
 from .async import ThreadPool
 
 
 class SessionError(Exception):
     pass
+
 
 class LoginError(SessionError):
     pass
@@ -27,7 +28,7 @@ def raise_fetch_error(page, e):
 
 class SessionPool(ThreadPool):
     def __init__(self, n_threads, cookies):
-        super().__init__(n_threads, { "cookies": cookies })
+        super().__init__(n_threads, {"cookies": cookies})
 
     def init_thread(self, local_state):
         session = requests.session()
@@ -41,7 +42,7 @@ class SessionPool(ThreadPool):
         return local_state["session"].request(task["method"], *task["args"], **task["kwargs"])
 
     def defer_request(self, method, *args, **kwargs):
-        self.defer({ "method": method, "args": args, "kwargs": kwargs })
+        self.defer({"method": method, "args": args, "kwargs": kwargs})
 
 
 class Session:
@@ -50,7 +51,6 @@ class Session:
 
     def studip_url(self, url):
         return self.config["server", "studip_base"] + url
-
 
     def __init__(self, config, db, user_name, password, sync_dir):
         self.db = db
@@ -71,14 +71,14 @@ class Session:
 
         try:
             r = self.http.post(
-                    self.sso_url(form_data.post_url),
-                    data = {
-                        "j_username": user_name,
-                        "j_password": password,
-                        "uApprove.consent-revocation": "",
-                        "_eventId_proceed": ""
-                    }
-                )
+                self.sso_url(form_data.post_url),
+                data={
+                    "j_username": user_name,
+                    "j_password": password,
+                    "uApprove.consent-revocation": "",
+                    "_eventId_proceed": ""
+                }
+            )
         except RequestException as e:
             raise_fetch_error("login confirmation page", e)
 
@@ -95,11 +95,10 @@ class Session:
         except RequestException as e:
             raise_fetch_error("login page", e)
 
-
     def update_metadata(self):
         url = self.studip_url("/studip/dispatch.php/my_courses/set_semester")
         try:
-            overview_page = self.http.post(url, data={ "sem_select": "current" }).text
+            overview_page = self.http.post(url, data={"sem_select": "current"}).text
         except RequestException as e:
             raise_fetch_error("overview page", e)
 
@@ -108,7 +107,7 @@ class Session:
         except ParserError:
             raise SessionError("Unable to parse overview page")
 
-        self.db.update_semester_list(semester_list.semesters)
+        self.db.update_semester_list(semester_list)
 
         try:
             remote_courses = parse_course_list(overview_page)
@@ -124,13 +123,13 @@ class Session:
         for course_id in removed_course_ids:
             course = self.db.get_course_details(course_id)
             choice = prompt_choice("Delete data for removed course \"{}\"? ([Y]es, [n]o)".format(
-                    ellipsize(course.name, 50)), "yn", default="y")
+                ellipsize(course.name, 50)), "yn", default="y")
             if choice == "y":
                 self.db.delete_course(course)
 
         for course in new_courses:
             sync = prompt_choice("Synchronize {} {}? ([Y]es, [r]ename, [n]o)".format(
-                    course.type, ellipsize(course.name, 40)), "ynr", default="y")
+                course.type, ellipsize(course.name, 40)), "ynr", default="y")
             if sync == "r":
                 course.name = input("Name [{}]: ".format(course.name)).strip() or course.name
                 course.abbrev = input("Abbreviation [{}]: ".format(
@@ -140,20 +139,20 @@ class Session:
                     abbreviate_course_type(course.type))).strip() or None
                 course.sync = SyncMode.Full
             else:
-                course.sync = { "y" : SyncMode.Full, "n" : SyncMode.NoSync }[sync]
+                course.sync = {"y": SyncMode.Full, "n": SyncMode.NoSync}[sync]
             self.db.add_course(course)
 
         sync_courses = self.db.list_courses(full=True, select_sync_no=False)
         last_course_synced = False
         db_files = self.db.list_files(full=True, select_sync_yes=True,
-                select_sync_metadata_only=True, select_sync_no=False)
+                                      select_sync_metadata_only=True, select_sync_no=False)
         db_file_dict = dict((f.id, f) for f in db_files)
 
         concurrency = int(self.config["connection", "update_concurrency"])
         with SessionPool(concurrency, self.http.cookies) as pool:
             for course in sync_courses:
                 course_url = self.studip_url("/studip/seminar_main.php?auswahl=" + course.id)
-                folder_url = self.studip_url("/studip/folder.php?cid=" + course.id + "&cmd=all")
+                folder_url = self.studip_url("/studip/dispatch.php/course/files/flat?cid=" + course.id)
 
                 try:
                     self.http.get(course_url, timeout=(None, 0.001))
@@ -173,9 +172,9 @@ class Session:
                 if last_course_synced:
                     print()
 
-                new_files = [ file_id for file_id, _ in file_list if file_id not in db_file_dict ]
-                updated_files = [ file_id for file_id, date in file_list
-                        if file_id  in db_file_dict and db_file_dict[file_id].remote_date != date ]
+                new_files = list(set([file_id for file_id, _ in file_list if file_id not in db_file_dict]))
+                updated_files = [file_id for file_id, date in file_list
+                                 if file_id in db_file_dict and db_file_dict[file_id].remote_date != date]
 
                 if len(new_files) > 0:
                     new_files_str = ("" if last_course_synced else "\n") + str(len(new_files))
@@ -189,7 +188,7 @@ class Session:
                     updated_files_str = ", {} updated ".format(len(updated_files))
 
                 print("{} new{} file(s) for {} {} ".format(new_files_str, updated_files_str,
-                        course.type, course.name))
+                                                           course.type, course.name))
 
                 files_to_fetch = new_files + updated_files
                 for file_id in files_to_fetch:
@@ -202,8 +201,14 @@ class Session:
                     except ParserError:
                         raise SessionError("Unable to parse file details")
 
-                    print("Fetched metadata for file {}/{}: ".format(i+1, len(files_to_fetch)),
-                            end="", flush=True)
+                    desc = self.http.get(file.description_url)
+                    try:
+                        file = parse_file_desciption(file, desc.text)
+                    except ParserError:
+                        raise SessionError("Unable to parse file details")
+
+                    print("Fetched metadata for file {}/{}: ".format(i + 1, len(files_to_fetch)),
+                          end="", flush=True)
                     if file.complete():
                         if file.id in new_files:
                             self.db.add_file(file)
@@ -213,30 +218,29 @@ class Session:
                     else:
                         print(" <bad format>")
 
-
     def fetch_files(self):
         first_file = True
         files_dir = path.join(self.sync_dir, ".studip", "files")
         os.makedirs(files_dir, exist_ok=True)
 
         sync_files = self.db.list_files(full=True, select_sync_metadata_only=False,
-                select_sync_no=False)
+                                        select_sync_no=False)
         sync_file_paths = ((f, path.join(files_dir, f.id)
-                + ("."  + str(f.version) if f.version > 0 else "")) for f in sync_files)
+                            + ("." + str(f.version) if f.version > 0 else "")) for f in sync_files)
         sync_file_updates = ((f, p, path.isfile(p), not f.local_date
-                or f.local_date != f.remote_date) for (f, p) in sync_file_paths)
+                              or f.local_date != f.remote_date) for (f, p) in sync_file_paths)
         pending_files = [(f, p, exists, update) for (f, p, exists, update) in sync_file_updates
-                if not exists or update]
+                         if not exists or update]
 
         for i, (file, file_path, exists, update) in enumerate(pending_files):
             if first_file:
                 print()
                 first_file = False
-            print("Fetching file {}/{}: {}...".format(i+1, len(pending_files),
-                    ellipsize(file.description, 50)))
+            print("Fetching file {}/{}: {}...".format(i + 1, len(pending_files),
+                                                      ellipsize(file.description, 50)))
 
             url = self.studip_url("/studip/sendfile.php?force_download=1&type=0&" \
-                    + urlencode({"file_id": file.id, "file_name": file.name }))
+                                  + urlencode({"file_id": file.id, "file_name": file.name}))
             try:
                 r = self.http.get(url)
             except RequestException as e:
@@ -252,4 +256,3 @@ class Session:
 
             self.db.update_file_local_date(file)
             self.db.commit()
-
