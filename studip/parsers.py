@@ -12,11 +12,22 @@ DUPLICATE_TYPE_RE = re.compile(r'^(?P<type>(Plenarü|Tutorü|Ü)bung(en)?|Tutori
                                + r'\s+(?P<name>.+)')
 COURSE_NAME_TYPE_RE = re.compile(r'(.*?)\s*\(\s*([^)]+)\s*\)\s*$')
 
+DATE_FORMATS = ['%d.%m.%Y %H:%M:%S', '%d/%m/%y %H:%M:%S']
+
 
 def get_url_field(url, field):
     parsed_url = urlparse.urlparse(url)
     query = urlparse.parse_qs(parsed_url.query, encoding="iso-8859-1")
     return query[field][0] if field in query else None
+
+
+def parse_date(date: str):
+    for fmt in DATE_FORMATS:
+        try:
+            return datetime.strptime(date, fmt)
+        except ValueError:
+            pass
+    raise ValueError('Invalid date format')
 
 
 class ParserError(Exception):
@@ -109,7 +120,7 @@ def parse_file_list(html):
                             if 'title' in other_tds.attrs:
                                 date_str = other_tds.attrs['title']
                                 try:
-                                    date = datetime.strptime(date_str, "%d.%m.%Y %H:%M:%S")
+                                    date = parse_date(date_str)
                                     break
                                 except ValueError:
                                     pass
@@ -134,7 +145,7 @@ def parse_file_details(course_id, html):
                             if 'title' in other_tds.attrs:
                                 date_str = other_tds.attrs['title']
                                 try:
-                                    file.remote_date = datetime.strptime(date_str, "%d.%m.%Y %H:%M:%S")
+                                    file.remote_date = parse_date(date_str)
                                     break
                                 except ValueError:
                                     pass
