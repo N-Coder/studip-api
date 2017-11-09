@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
-import re, os
+import os
+import re
+
 from setuptools import setup
 
 if __name__ == "__main__":
@@ -13,20 +15,20 @@ if __name__ == "__main__":
         long_descr = f.read().decode("utf-8")
 
     setup(
-        name="studip-client",
-        packages=["studip"],
-        entry_points={
-            "console_scripts": ["studip = studip.application:main"]
-        },
+        name="studip-api",
+        packages=["studip_api"],
         include_package_data=True,
         install_requires=[
-            "requests",
-            "appdirs",
-            "bs4"
+            "more_itertools",
+            "attrs",
+            "asyncio",
+            "aiofiles",
+            "aiohttp",
+            "beautifulsoup4",
         ],
         version=version,
-        description="CLI Client for the Stud.IP University Access Portal",
+        description="Python API for courses and files available through the Stud.IP University Access Portal",
         long_description=long_descr,
-        author="Fabian Knorr",
-        url="https://github.com/fknorr/studip-client"
+        author="Fabian Knorr, Jonas Pöhler, Simon Fink",
+        url="https://github.com/N-Coder/studip-api"
     )

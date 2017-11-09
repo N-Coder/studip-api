@@ -1,6 +1,4 @@
 import re
-
-from base64 import b64encode, b64decode
 from enum import IntEnum
 
 INT_RANGE_SEP_RE = re.compile(r"[.;,:\s]+")
@@ -13,13 +11,8 @@ WORD_SEPARATOR_RE = re.compile(r'[-. _/()]+')
 NUMBER_RE = re.compile(r'^([0-9]+)|([IVXLCDM]+)$')
 SEMESTER_RE = re.compile(r'^(SS|WS) (\d{2})(.(\d{2}))?')
 
-
-def prompt_choice(prompt, options, default=None):
-    choice = None
-    while choice is None or (default is None and len(choice) < 1) \
-            or (len(choice) > 0 and choice[0] not in options):
-        choice = input(prompt + ": ").lower()
-    return choice[0] if len(choice) > 0 else default
+EscapeMode = IntEnum("EscapeMode", "Similar Typeable CamelCase SnakeCase")
+Charset = IntEnum("Charset", "Unicode Ascii Identifier")
 
 
 def expand_int_range(range_str, low, high):
@@ -35,7 +28,7 @@ def expand_int_range(range_str, low, high):
             raise ValueError("Invalid integer range")
         lower = int(match.group(1))
         upper = int(match.group(3)) if match.group(2) else lower
-        nums += range(lower, upper+1)
+        nums += range(lower, upper + 1)
     return nums
 
 
@@ -45,46 +38,16 @@ def ellipsize(string, length):
     else:
         return string[:length - 3] + "..."
 
-def xor_bytes(key, text):
-    while len(key) < len(text): key += key
-    return bytearray(a^b for a, b in zip(text, key))
-
-
-def encrypt_password(secret, password):
-    password_code = str(len(password)) + ":" + password
-    password_code += "." * (30 - (len(password_code)+1) % 30 - 1)
-    return b64encode(xor_bytes(secret, password_code.encode("utf-8"))).decode("ascii")
-
-
-def decrypt_password(secret, crypt):
-    try:
-        password_code = xor_bytes(secret, b64decode(crypt.encode("ascii"))).decode("utf-8")
-        length, password = tuple(password_code.split(":", 2))
-        return password[:int(length)]
-    except Exception:
-        return None
-
 
 def compact(str):
     return " ".join(str.split())
 
 
-def chunks(list, count):
-    chunk_size = len(list) // count
-    modulo = len(list) % count
-    offset = 0
-    for i in range(count):
-        yield list[offset : offset + chunk_size + (1 if i < modulo else 0)]
-
-
-EscapeMode = IntEnum("EscapeMode", "Similar Typeable CamelCase SnakeCase")
-Charset = IntEnum("Charset", "Unicode Ascii Identifier")
-
 def escape_file_name(str, charset, mode):
     if charset in [Charset.Ascii, Charset.Identifier]:
         str = str.replace("ß", "ss").replace("ä", "ae").replace("Ä", "Ae") \
-                .replace("ö", "oe").replace("Ö", "Oe").replace("ü", "ue") \
-                .replace("Ü", "Ue")
+            .replace("ö", "oe").replace("Ö", "Oe").replace("ü", "ue") \
+            .replace("Ü", "Ue")
         str = (NON_ASCII_RE if charset == Charset.Ascii else NON_IDENTIFIER_RE).sub("", str)
     if mode in [EscapeMode.SnakeCase, EscapeMode.CamelCase] or charset == Charset.Identifier:
         parts = PUNCTUATION_WHITESPACE_RE.split(str)
@@ -96,10 +59,10 @@ def escape_file_name(str, charset, mode):
             return "_".join(parts)
     elif mode == EscapeMode.Typeable or charset in [Charset.Ascii, Charset.Identifier]:
         return FS_SPECIAL_CHARS_RE.sub("-" if charset == Charset.Ascii else "_", str)
-    else: # mode == "unicode" or incorrectly set
+    else:  # mode == "unicode" or incorrectly set
         # Replace regular '/' by similar looking 'DIVISION SLASH' (U+2215) and ':' by
         # 'RATIO' to create a valid directory name
-            return str.replace("/", "\u2215").replace(":", "\u2236")
+        return str.replace("/", "\u2215").replace(":", "\u2236")
 
 
 def abbreviate_course_name(name):
@@ -110,7 +73,7 @@ def abbreviate_course_name(name):
         number = words[-1]
         words = words[0:len(words) - 1]
     if len(words) < 3:
-        abbrev = "".join(w[0 : min(3, len(w))] for w in words)
+        abbrev = "".join(w[0: min(3, len(w))] for w in words)
     elif len(words) >= 3:
         abbrev = "".join(w[0] for w in words if len(w) > 0)
     return abbrev + number
@@ -138,3 +101,5 @@ def lexicalise_semester(semester, short=False):
         return SEMESTER_RE.sub(r'20\2\1\4', semester)
 
 
+class StudIPError(Exception):
+    pass
