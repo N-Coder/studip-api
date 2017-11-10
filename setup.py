@@ -25,6 +25,7 @@ if __name__ == "__main__":
             "aiofiles",
             "aiohttp",
             "beautifulsoup4",
+            "cached_property",
         ],
         version=version,
         description="Python API for courses and files available through the Stud.IP University Access Portal",

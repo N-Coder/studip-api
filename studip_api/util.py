@@ -1,5 +1,6 @@
 import re
 from enum import IntEnum
+from typing import Tuple
 
 INT_RANGE_SEP_RE = re.compile(r"[.;,:\s]+")
 INT_RANGE_INTERVAL_RE = re.compile(r"(\d+)(\s*-\s*(\d+))?")
@@ -13,6 +14,10 @@ SEMESTER_RE = re.compile(r'^(SS|WS) (\d{2})(.(\d{2}))?')
 
 EscapeMode = IntEnum("EscapeMode", "Similar Typeable CamelCase SnakeCase")
 Charset = IntEnum("Charset", "Unicode Ascii Identifier")
+
+
+class StudIPError(Exception):
+    pass
 
 
 def expand_int_range(range_str, low, high):
@@ -101,5 +106,9 @@ def lexicalise_semester(semester, short=False):
         return SEMESTER_RE.sub(r'20\2\1\4', semester)
 
 
-class StudIPError(Exception):
-    pass
+def mkdict(*args, **kwargs):
+    args = [[a] if isinstance(a, Tuple) else a for a in args]
+    d = dict()
+    for arg in args + [kwargs]:
+        d.update(dict(arg))
+    return d

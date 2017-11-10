@@ -3,7 +3,7 @@ from typing import Any, List
 
 import attr
 
-from studip_api.util import abbreviate_course_name, abbreviate_course_type
+from studip_api.util import SEMESTER_RE, abbreviate_course_name, abbreviate_course_type
 
 
 @attr.s
@@ -21,6 +21,12 @@ class Semester(object):
     def complete(self):
         return self.id and self.name and self.order >= 0
 
+    @property
+    def start_date(self) -> datetime:
+        match = SEMESTER_RE.match(self.name)
+        return datetime(year=int("20" + match.group(2)), month={"SS": 4, "WS": 10}[match.group(1)], day=1, hour=0,
+                        minute=0)
+
 
 @attr.s
 class Course(object):
@@ -29,9 +35,6 @@ class Course(object):
     number: int = attr.ib()
     name: str = attr.ib()
     type: str = attr.ib()
-
-    # abbrev: str
-    # type_abbrev: str
 
     def __hash__(self):
         return hash(self.id)
@@ -105,4 +108,5 @@ class Folder(File):
         if self.contents is None:
             return self.path + " (content unknown)"
         else:
-            return self.path + "\n\t" + "\n\t".join(f.path for f in self.contents)
+            return self.path + " (%s children)" % len(self.contents)
+            # "\n\t" + "\n\t".join(f.path for f in self.contents)
