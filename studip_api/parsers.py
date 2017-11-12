@@ -8,7 +8,6 @@ import attr
 from bs4 import BeautifulSoup
 
 from studip_api.model import Course, File, Folder, Semester
-from studip_api.util import compact
 
 DUPLICATE_TYPE_RE = re.compile(r'^(?P<type>(Plenarü|Tutorü|Ü)bung(en)?|Tutorium|Praktikum'
                                + r'|(Obers|Haupts|S)eminar|Lectures?|Exercises?)(\s+(f[oü]r|on|zu[rm]?|i[nm]|auf))?'
@@ -16,6 +15,10 @@ DUPLICATE_TYPE_RE = re.compile(r'^(?P<type>(Plenarü|Tutorü|Ü)bung(en)?|Tutori
 COURSE_NAME_TYPE_RE = re.compile(r'(.*?)\s*\(\s*([^)]+)\s*\)\s*$')
 
 DATE_FORMATS = ['%d.%m.%Y %H:%M:%S', '%d/%m/%y %H:%M:%S']
+
+
+def compact(str):
+    return " ".join(str.split())
 
 
 def get_url_field(url, field):
@@ -177,9 +180,9 @@ def parse_file_list_index(html, course: Course, folder_info: Optional[Folder]):
             name = tds[2].text.strip()
             size = tds[3].text.strip()
             author = tds[4].text.strip()
-            date = parse_date(tds[5].attrs['title'])
+            changed = parse_date(tds[5].attrs['title'])  # TODO created?
 
-            files.append(type(id=fid, course=course, parent=folder, name=name, author=author, changed=date))
+            files.append(type(id=fid, course=course, parent=folder, name=name, author=author, changed=changed))
 
     assert not any(f.id == folder_id for f in files)
     return folder

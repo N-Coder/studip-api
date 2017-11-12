@@ -9,7 +9,10 @@ import aiohttp
 from aiohttp import ClientError
 
 from studip_api.parsers import *
-from studip_api.util import StudIPError
+
+
+class StudIPError(Exception):
+    pass
 
 
 class LoginError(StudIPError):

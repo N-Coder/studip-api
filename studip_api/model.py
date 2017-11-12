@@ -1,9 +1,12 @@
+import re
 from datetime import datetime
 from typing import Any, List
 
 import attr
 
-from studip_api.util import SEMESTER_RE, abbreviate_course_name, abbreviate_course_type
+WORD_SEPARATOR_RE = re.compile(r'[-. _/()]+')
+NUMBER_RE = re.compile(r'^([0-9]+)|([IVXLCDM]+)$')
+SEMESTER_RE = re.compile(r'^(SS|WS) (\d{2})(.(\d{2}))?')
 
 
 @attr.s
@@ -27,6 +30,14 @@ class Semester(object):
         return datetime(year=int("20" + match.group(2)), month={"SS": 4, "WS": 10}[match.group(1)], day=1, hour=0,
                         minute=0)
 
+    @property
+    def lexical_short(self):
+        return SEMESTER_RE.sub(r'20\2\1', self.name)
+
+    @property
+    def lexical(self):
+        return SEMESTER_RE.sub(r'20\2\1\4', self.name)
+
 
 @attr.s
 class Course(object):
@@ -44,11 +55,31 @@ class Course(object):
 
     @property
     def abbrev(self):
-        return abbreviate_course_name(self.name)
+        words = WORD_SEPARATOR_RE.split(self.name)
+        number = ""
+        abbrev = ""
+        if len(words) > 1 and NUMBER_RE.match(words[-1]):
+            number = words[-1]
+            words = words[0:len(words) - 1]
+        if len(words) < 3:
+            abbrev = "".join(w[0: min(3, len(w))] for w in words)
+        elif len(words) >= 3:
+            abbrev = "".join(w[0] for w in words if len(w) > 0)
+        return abbrev + number
 
     @property
     def type_abbrev(self):
-        return abbreviate_course_type(self.type)
+        special_abbrevs = {
+            "Arbeitsgemeinschaft": "AG",
+            "Studien-/Arbeitsgruppe": "SG",
+        }
+        try:
+            return special_abbrevs[self.type]
+        except KeyError:
+            abbrev = self.type[0]
+            if self.type.endswith("seminar"):
+                abbrev += "S"
+            return abbrev
 
     def complete(self):
         return self.id and self.semester and self.number and self.name and self.type
