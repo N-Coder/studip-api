@@ -9,7 +9,7 @@ NUMBER_RE = re.compile(r'^([0-9]+)|([IVXLCDM]+)$')
 SEMESTER_RE = re.compile(r'^(SS|WS) (\d{2})(.(\d{2}))?')
 
 
-@attr.s
+@attr.s(hash=False)
 class Semester(object):
     id: str = attr.ib()
     name: str = attr.ib()
@@ -39,7 +39,7 @@ class Semester(object):
         return SEMESTER_RE.sub(r'20\2\1\4', self.name)
 
 
-@attr.s
+@attr.s(hash=False)
 class Course(object):
     id: str = attr.ib()
     semester: Semester = attr.ib()

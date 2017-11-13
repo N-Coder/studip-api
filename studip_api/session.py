@@ -19,7 +19,7 @@ class LoginError(StudIPError):
     pass
 
 
-@attr.s
+@attr.s(hash=False)
 class StudIPSession:
     _user_name: str = attr.ib()
     _password: str = attr.ib(repr=False)
@@ -35,6 +35,9 @@ class StudIPSession:
 
     async def __aexit__(self, *exc_info):
         await self.ahttp.__aexit__(*exc_info)
+
+    def __hash__(self):
+        return hash((self._user_name, self._password, self._sso_base, self._studip_base))
 
     def _sso_url(self, url):
         return self._sso_base + url
