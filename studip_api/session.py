@@ -19,12 +19,12 @@ class LoginError(StudIPError):
     pass
 
 
+@attr.s
 class StudIPSession:
-    def __init__(self, user_name, password, sso_base, studip_base):
-        self._user_name = user_name
-        self._password = password
-        self._sso_base = sso_base
-        self._studip_base = studip_base
+    _user_name: str = attr.ib()
+    _password: str = attr.ib(repr=False)
+    _sso_base: str = attr.ib()
+    _studip_base: str = attr.ib()
 
     async def __aenter__(self):
         # self.http = requests.session()
