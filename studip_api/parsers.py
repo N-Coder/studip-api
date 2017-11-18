@@ -178,11 +178,12 @@ def parse_file_list_index(html, course: Course, folder_info: Optional[Folder]):
             fid = tds[0].find("input", class_="document-checkbox").attrs["value"]
             icon = tds[1].find("img")
             name = tds[2].text.strip()
-            size = tds[3].text.strip()
+            size = int(tds[3].attrs['data-sort-value'])
             author = tds[4].text.strip()
             changed = parse_date(tds[5].attrs['title'])  # TODO created?
 
-            files.append(type(id=fid, course=course, parent=folder, name=name, author=author, changed=changed))
+            files.append(type(id=fid, course=course, parent=folder, name=name, author=author, changed=changed,
+                              size=size))
 
     assert not any(f.id == folder_id for f in files)
     return folder
