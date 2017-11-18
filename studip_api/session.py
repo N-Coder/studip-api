@@ -135,8 +135,8 @@ class StudIPSession:
         async with self.ahttp.head(url) as r:
             accept_ranges = r.headers.get("Accept-Ranges", "")
             if accept_ranges != "bytes":
-                log_download.debug("Server is not indicating Accept-Ranges for file download:\n%s\n%s", r.request_info,
-                                   r)
+                log_download.debug("Server is not indicating Accept-Ranges for file download:\n%s\n%s",
+                                   r.request_info, r)
             total_length = r.content_length or r.headers.get("Content-Length", None)
             if not total_length and "Content-Range" in r.headers:
                 content_range = r.headers["Content-Range"]
@@ -154,9 +154,9 @@ async def _write_response(req, af, rnge, total_length):
         requested_rage = resp.request_info.headers.get("Range", "")
         expected_range = "bytes %s-%s/%s" % (rnge.start, rnge.stop, total_length)
         actual_range = resp.headers.get("Content-Range", "")
-        if expected_range != actual_range:
-            log_download.warning("Requested range %s, expected %s, got %s", requested_rage, expected_range,
-                                 actual_range)
+        if expected_range != actual_range:  # FIXME this is off by one
+            log_download.warning("Requested range %s, expected %s, got %s",
+                                 requested_rage, expected_range, actual_range)
 
         offset = rnge.start
         while True:
