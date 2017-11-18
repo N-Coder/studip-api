@@ -25,6 +25,7 @@ if __name__ == "__main__":
             "aiofiles",
             "aiohttp",
             "beautifulsoup4",
+            "lxml",
             "cached_property",
         ],
         version=version,
