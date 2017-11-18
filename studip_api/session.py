@@ -88,6 +88,7 @@ class StudIPSession:
                 self._studip_url("/studip/dispatch.php/my_courses/set_semester"),
                 data={"sem_select": semester.id}) as r:
             return list(parse_course_list(await r.text(), semester))
+            # TODO reset semester
 
     async def get_course_files(self, course: Course) -> Folder:
         async with self.ahttp.get(self._studip_url("/studip/dispatch.php/course/files/index?cid=" + course.id)) as r:
@@ -121,7 +122,7 @@ class StudIPSession:
             ranges = list(more_itertools.sliced(range(total_length), chunk_size))
             requests = [self.ahttp.get(url, headers={"Range": "bytes={0}-{1}".format(i.start, i.stop)}) for i in ranges]
             writers = [_write_response(req, af, rnge, total_length) for req, rnge in zip(requests, ranges)]
-
+            # TODO return Futures for separate ranges early
             done, pending = await asyncio.wait(writers)
             assert not pending
 
