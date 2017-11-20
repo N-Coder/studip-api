@@ -88,7 +88,9 @@ class StudIPSession:
                 self._studip_url("/studip/dispatch.php/my_courses/set_semester"),
                 data={"sem_select": semester.id}) as r:
             return list(parse_course_list(await r.text(), semester))
-            # TODO reset semester
+            # TODO reset semester on Session close
+            # TODO ensure "Ansicht = Standard" (see side-bar) and restore afterwards
+            #      (my_courses/store_groups?select_group_field=sem_number)
 
     async def get_course_files(self, course: Course) -> Folder:
         async with self.ahttp.get(self._studip_url("/studip/dispatch.php/course/files/index?cid=" + course.id)) as r:
@@ -127,7 +129,7 @@ class StudIPSession:
             assert not pending
 
         timestamp = time.mktime(file.changed.timetuple())
-        await asyncio.get_event_loop().run_in_executor(None, os.utime, dest, (timestamp, timestamp))
+        await self.loop.run_in_executor(None, os.utime, dest, (timestamp, timestamp))
 
         return dest
 
