@@ -102,10 +102,13 @@ class File(object):
 
     @property
     def path(self):
-        return "%s/%s" % (self.parent.path, self.name)
+        if self.parent:
+            return self.parent.path + [self.name]
+        else:
+            return [self.name]
 
     def __str__(self):
-        return self.path
+        return "/" + "/".join(self.path)
 
     def is_folder(self):
         return False
@@ -119,13 +122,6 @@ class Folder(File):
     contents: List[File] = attr.ib(default=None)
 
     @property
-    def path(self):
-        if self.is_root:
-            return "/%s" % self.name
-        else:
-            return super().path
-
-    @property
     def is_root(self):
         return not self.parent
 
@@ -137,7 +133,7 @@ class Folder(File):
 
     def __str__(self):
         if self.contents is None:
-            return self.path + " (content unknown)"
+            return super().__str__() + " (content unknown)"
         else:
-            return self.path + " (%s children)" % len(self.contents)
+            return super().__str__() + " (%s children)" % len(self.contents)
             # "\n\t" + "\n\t".join(f.path for f in self.contents)
