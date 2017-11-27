@@ -6,6 +6,7 @@ from typing import Optional
 
 import attr
 from bs4 import BeautifulSoup
+from more_itertools import flatten, one
 
 from studip_api.model import Course, File, Folder, Semester
 
@@ -77,6 +78,21 @@ def parse_saml_form(html):
             form_data[input.attrs['name']] = input.attrs['value']
 
     return form_data
+
+
+def parse_user_selection(html):
+    soup = BeautifulSoup(html, 'lxml')
+
+    selected_semester = one(flatten(
+        select.find('optgroup').find_all('option', {'selected': True})
+        for select in soup.find_all('select', {'name': 'sem_select'})
+    )).attrs['value']
+    selected_ansicht = soup.find(
+        'a', class_="active",
+        href=re.compile("my_courses/store_groups\?select_group_field")
+    ).attrs['href']
+
+    return selected_semester, get_url_field(selected_ansicht, "select_group_field")
 
 
 def parse_semester_list(html):
