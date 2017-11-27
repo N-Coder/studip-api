@@ -87,7 +87,7 @@ class Course(object):
 
 @attr.s(hash=False)
 class File(object):
-    id: str = attr.ib()
+    id: str = attr.ib()  # TODO course nr
     course: Course = attr.ib()
     parent: Any = attr.ib()
     name: str = attr.ib()
@@ -108,7 +108,7 @@ class File(object):
             return [self.name]
 
     def __str__(self):
-        return "/" + "/".join(self.path)
+        return "/".join(self.path)
 
     def is_folder(self):
         return False

@@ -91,6 +91,7 @@ class StudIPSession:
             # TODO reset semester on Session close
             # TODO ensure "Ansicht = Standard" (see side-bar) and restore afterwards
             #      (my_courses/store_groups?select_group_field=sem_number)
+            # TODO alternatively, parse list from "Farbgruppierung" and make further requests to get information for all courses
 
     async def get_course_files(self, course: Course) -> Folder:
         async with self.ahttp.get(self._studip_url("/studip/dispatch.php/course/files/index?cid=" + course.id)) as r:
