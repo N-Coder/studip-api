@@ -84,7 +84,7 @@ def parse_user_selection(html):
     soup = BeautifulSoup(html, 'lxml')
 
     selected_semester = one(flatten(
-        select.find('optgroup').find_all('option', {'selected': True})
+        select.find_all('option', {'selected': True})
         for select in soup.find_all('select', {'name': 'sem_select'})
     )).attrs['value']
     selected_ansicht = soup.find(
