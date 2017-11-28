@@ -5,6 +5,7 @@ import time
 from tempfile import NamedTemporaryFile
 from typing import List
 from urllib.parse import urlencode
+from weakref import WeakSet
 
 import aiofiles
 import aiohttp
@@ -37,6 +38,7 @@ class StudIPSession:
         self._user_selected_ansicht: str = None
         self._needs_reset_at: int = False
         self._semester_select_lock = asyncio.Lock()
+        self._background_tasks = WeakSet()
 
     async def __aenter__(self):
         # self.http = requests.session()
@@ -46,7 +48,12 @@ class StudIPSession:
         return self
 
     async def __aexit__(self, *exc_info):
-        await self.ahttp.__aexit__(*exc_info)
+        try:
+            for task in self._background_tasks:
+                task.cancel()
+            await self.__reset_selections(force=True)
+        finally:
+            await self.ahttp.__aexit__(*exc_info)
 
     def __hash__(self):
         return hash((self._user_name, self._password, self._sso_base, self._studip_base))
@@ -90,6 +97,8 @@ class StudIPSession:
             selected_semester, selected_ansicht = parse_user_selection(await r.text())
             self._user_selected_semester = self._user_selected_semester or selected_semester
             self._user_selected_ansicht = self._user_selected_ansicht or selected_ansicht
+            log.debug("User selected semester %s in ansicht %s",
+                      self._user_selected_semester, self._user_selected_ansicht)
             return list(parse_semester_list(await r.text()))
 
     # TODO alternatively, parse list from "Farbgruppierung" and make further requests to get information for all courses
@@ -100,38 +109,53 @@ class StudIPSession:
             assert self._user_selected_semester and self._user_selected_ansicht
 
         async with self._semester_select_lock:
-            changed_ansicht = self._user_selected_ansicht != "sem_number"
-            if changed_ansicht:
-                await self.ahttp.post(
-                    self._studip_url("/studip/dispatch.php/my_courses/store_groups"),
-                    data={"select_group_field": "sem_number"})
+            change_ansicht = self._user_selected_ansicht != "sem_number"
+            if change_ansicht:
+                await self.__select_ansicht("sem_number")
 
-            changed_semester = self._user_selected_semester != semester
-            if changed_semester or changed_ansicht:
+            change_semester = self._user_selected_semester != semester.id
+            if change_semester or change_ansicht:
                 self._needs_reset_at = self.loop.time() + 9
-                self.loop.call_later(10, asyncio.ensure_future, self._reset_selections())
+                self._background_tasks.add(
+                    self.loop.call_later(10, lambda: asyncio.ensure_future(self.__reset_selections(quiet=True)))
+                )
 
-            async with self.ahttp.post(
-                    self._studip_url("/studip/dispatch.php/my_courses/set_semester"),
-                    data={"sem_select": semester.id}) as r:
-                courses = list(parse_course_list(await r.text(), semester))
-                return courses
+            courses = list(parse_course_list(await self.__select_semester(semester.id), semester))
+            return courses
 
-    async def _reset_selections(self):
-        if not self._needs_reset_at or self._needs_reset_at > self.loop.time():
-            return
-        async with self._semester_select_lock:
-            if not self._needs_reset_at or self._needs_reset_at > self.loop.time():
-                return
-
-            await self.ahttp.post(
+    async def __select_semester(self, semester):
+        async with self.ahttp.post(
                 self._studip_url("/studip/dispatch.php/my_courses/set_semester"),
-                data={"sem_select": self._user_selected_semester})
-            await self.ahttp.post(
-                self._studip_url("/studip/dispatch.php/my_courses/store_groups"),
-                data={"select_group_field": self._user_selected_ansicht})
+                data={"sem_select": semester}) as r:
+            selected_semester, selected_ansicht = parse_user_selection(await r.text())
+            assert selected_semester == semester
+            return await r.text()
 
-            self._needs_reset_at = False
+    async def __select_ansicht(self, ansicht):
+        async with self.ahttp.post(
+                self._studip_url("/studip/dispatch.php/my_courses/store_groups"),
+                data={"select_group_field": ansicht}) as r:
+            selected_semester, selected_ansicht = parse_user_selection(await r.text())
+            assert selected_ansicht == ansicht
+            return await r.text()
+
+    async def __reset_selections(self, force=False, quiet=False):
+        try:
+            async with self._semester_select_lock:
+                if self.ahttp.closed:
+                    return
+                if not force and (not self._needs_reset_at or self._needs_reset_at > self.loop.time()):
+                    return
+
+                await self.__select_semester(self._user_selected_semester)
+                await self.__select_ansicht(self._user_selected_ansicht)
+
+                self._needs_reset_at = False
+        except:
+            if quiet:
+                log.warning("Could not reset semester selection", exc_info=True)
+            else:
+                raise
 
     async def get_course_files(self, course: Course) -> Folder:
         async with self.ahttp.get(self._studip_url("/studip/dispatch.php/course/files/index?cid=" + course.id)) as r:
