@@ -190,6 +190,7 @@ class StudIPSession:
             requests = [self.ahttp.get(url, headers={"Range": "bytes={0}-{1}".format(i.start, i.stop)}) for i in ranges]
             writers = [_write_response(req, af, rnge, total_length) for req, rnge in zip(requests, ranges)]
             # TODO return Futures for separate ranges early
+            # TODO raise exceptions
             done, pending = await asyncio.wait(writers)
             assert not pending
 
@@ -219,9 +220,10 @@ class StudIPSession:
 async def _write_response(req, af, rnge, total_length):
     async with req as resp:
         requested_rage = resp.request_info.headers.get("Range", "")
-        expected_range = "bytes %s-%s/%s" % (rnge.start, rnge.stop, total_length)
+        expected_range = "bytes %s-%s/%s" % (rnge.start, rnge.stop - 1, total_length)
+        expected_range_plus1 = "bytes %s-%s/%s" % (rnge.start, rnge.stop, total_length)
         actual_range = resp.headers.get("Content-Range", "")
-        if expected_range != actual_range:  # FIXME this is off by one
+        if expected_range != actual_range and expected_range_plus1 != actual_range:
             log_download.warning("Requested range %s, expected %s, got %s",
                                  requested_rage, expected_range, actual_range)
 
