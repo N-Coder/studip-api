@@ -199,8 +199,10 @@ def parse_file_list_index(html, course: Course, folder_info: Optional[Folder]):
             changed = parse_date(tds[5].attrs['title'])  # TODO created?
 
             files.append(type(id=fid, course=course, parent=folder, name=name, author=author, changed=changed,
-                              size=size))
+                              size=size if size >= 0 else None))
 
+    if len(files) == 1:
+        files[0].is_single_child = True
     assert not any(f.id == folder_id for f in files)
     return folder
 

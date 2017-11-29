@@ -96,6 +96,7 @@ class File(object):
     size: int = attr.ib(default=None)
     created: datetime = attr.ib(default=None)
     changed: datetime = attr.ib(default=None)
+    is_single_child = attr.ib(default=False)
 
     def __hash__(self):
         return hash(self.id)
