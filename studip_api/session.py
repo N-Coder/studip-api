@@ -194,8 +194,12 @@ class StudIPSession:
             done, pending = await asyncio.wait(writers)
             assert not pending
 
-        timestamp = time.mktime(file.changed.timetuple())
-        await self.loop.run_in_executor(None, os.utime, dest, (timestamp, timestamp))
+        if file.changed:
+            timestamp = time.mktime(file.changed.timetuple())
+            await self.loop.run_in_executor(None, os.utime, dest, (timestamp, timestamp))
+        else:
+            logging.warning("Can't set timestamp of file %s :: %s, because the value wasn't loaded from Stud.IP",
+                            file, dest)
 
         return dest
 
