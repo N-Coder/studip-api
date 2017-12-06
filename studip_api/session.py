@@ -32,6 +32,7 @@ class StudIPSession:
     _password: str = attr.ib(repr=False)
     _sso_base: str = attr.ib()
     _studip_base: str = attr.ib()
+    _http_args: dict = attr.ib()
 
     def __attrs_post_init__(self):
         self._user_selected_semester: Semester = None
@@ -42,8 +43,16 @@ class StudIPSession:
 
     async def __aenter__(self):
         # self.http = requests.session()
-        self.ahttp = await aiohttp.ClientSession().__aenter__()
         self.loop = asyncio.get_event_loop()
+        # TODO unclosed if login fails
+        connector = aiohttp.TCPConnector(loop=self.loop, limit=self._http_args.pop("limit"),
+                                         keepalive_timeout=self._http_args.pop("keepalive_timeout"),
+                                         force_close=self._http_args.pop("force_close"))
+        self.ahttp = aiohttp.ClientSession(connector=connector, loop=self.loop,
+                                           read_timeout=self._http_args.pop("read_timeout"),
+                                           conn_timeout=self._http_args.pop("conn_timeout"))
+        if self._http_args:
+            raise ValueError("Unknown http_args %s", self._http_args)
         await self._ado_login(self._user_name, self._password)
         return self
 
@@ -53,7 +62,8 @@ class StudIPSession:
                 task.cancel()
             await self.__reset_selections(force=True)
         finally:
-            await self.ahttp.__aexit__(*exc_info)
+            if self.ahttp:
+                await self.ahttp.close()
 
     def __hash__(self):
         return hash((self._user_name, self._password, self._sso_base, self._studip_base))
@@ -124,25 +134,29 @@ class StudIPSession:
             return courses
 
     async def __select_semester(self, semester):
+        semester = semester or "current"
         async with self.ahttp.post(
                 self._studip_url("/studip/dispatch.php/my_courses/set_semester"),
                 data={"sem_select": semester}) as r:
             selected_semester, selected_ansicht = parse_user_selection(await r.text())
-            assert selected_semester == semester
+            assert selected_semester == semester, "Tried to select semester %s, but Stud.IP delivered semester %s" % \
+                                                  (semester, selected_semester)
             return await r.text()
 
     async def __select_ansicht(self, ansicht):
+        ansicht = ansicht or "sem_number"
         async with self.ahttp.post(
                 self._studip_url("/studip/dispatch.php/my_courses/store_groups"),
                 data={"select_group_field": ansicht}) as r:
             selected_semester, selected_ansicht = parse_user_selection(await r.text())
-            assert selected_ansicht == ansicht
+            assert selected_ansicht == ansicht, "Tried to select ansicht %s, but Stud.IP delivered ansicht %s" % \
+                                                (ansicht, selected_ansicht)
             return await r.text()
 
     async def __reset_selections(self, force=False, quiet=False):
         try:
             async with self._semester_select_lock:
-                if self.ahttp.closed:
+                if not self.ahttp or self.ahttp.closed:
                     return
                 if not force and (not self._needs_reset_at or self._needs_reset_at > self.loop.time()):
                     return
