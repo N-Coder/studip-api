@@ -28,11 +28,10 @@ class LoginError(StudIPError):
 
 @attr.s(hash=False)
 class StudIPSession:
-    _user_name: str = attr.ib()
-    _password: str = attr.ib(repr=False)
     _sso_base: str = attr.ib()
     _studip_base: str = attr.ib()
     _http_args: dict = attr.ib()
+    _loop: asyncio.AbstractEventLoop = attr.ib()
 
     def __attrs_post_init__(self):
         self._user_selected_semester: Semester = None
@@ -40,23 +39,20 @@ class StudIPSession:
         self._needs_reset_at: int = False
         self._semester_select_lock = asyncio.Lock()
         self._background_tasks = WeakSet()
+        if not self._loop:
+            self._loop = asyncio.get_event_loop()
 
-    async def __aenter__(self):
-        # self.http = requests.session()
-        self.loop = asyncio.get_event_loop()
-        # TODO unclosed if login fails
-        connector = aiohttp.TCPConnector(loop=self.loop, limit=self._http_args.pop("limit"),
-                                         keepalive_timeout=self._http_args.pop("keepalive_timeout"),
-                                         force_close=self._http_args.pop("force_close"))
-        self.ahttp = aiohttp.ClientSession(connector=connector, loop=self.loop,
-                                           read_timeout=self._http_args.pop("read_timeout"),
-                                           conn_timeout=self._http_args.pop("conn_timeout"))
-        if self._http_args:
-            raise ValueError("Unknown http_args %s", self._http_args)
-        await self._ado_login(self._user_name, self._password)
-        return self
+        http_args = dict(self._http_args)
+        connector = aiohttp.TCPConnector(loop=self._loop, limit=http_args.pop("limit"),
+                                         keepalive_timeout=http_args.pop("keepalive_timeout"),
+                                         force_close=http_args.pop("force_close"))
+        self.ahttp = aiohttp.ClientSession(connector=connector, loop=self._loop,
+                                           read_timeout=http_args.pop("read_timeout"),
+                                           conn_timeout=http_args.pop("conn_timeout"))
+        if http_args:
+            raise ValueError("Unknown http_args %s", http_args)
 
-    async def __aexit__(self, *exc_info):
+    async def close(self):
         try:
             for task in self._background_tasks:
                 task.cancel()
@@ -65,16 +61,13 @@ class StudIPSession:
             if self.ahttp:
                 await self.ahttp.close()
 
-    def __hash__(self):
-        return hash((self._user_name, self._password, self._sso_base, self._studip_base))
-
     def _sso_url(self, url):
         return self._sso_base + url
 
     def _studip_url(self, url):
         return self._studip_base + url
 
-    async def _ado_login(self, user_name, password):
+    async def do_login(self, user_name, password):
         try:
             async with self.ahttp.get(self._studip_url("/studip/index.php?again=yes&sso=shib")) as r:
                 post_url = parse_login_form(await r.text())
@@ -125,9 +118,9 @@ class StudIPSession:
 
             change_semester = self._user_selected_semester != semester.id
             if change_semester or change_ansicht:
-                self._needs_reset_at = self.loop.time() + 9
+                self._needs_reset_at = self._loop.time() + 9
                 self._background_tasks.add(
-                    self.loop.call_later(10, lambda: asyncio.ensure_future(self.__reset_selections(quiet=True)))
+                    self._loop.call_later(10, lambda: asyncio.ensure_future(self.__reset_selections(quiet=True)))
                 )
 
             courses = list(parse_course_list(await self.__select_semester(semester.id), semester))
@@ -158,7 +151,7 @@ class StudIPSession:
             async with self._semester_select_lock:
                 if not self.ahttp or self.ahttp.closed:
                     return
-                if not force and (not self._needs_reset_at or self._needs_reset_at > self.loop.time()):
+                if not force and (not self._needs_reset_at or self._needs_reset_at > self._loop.time()):
                     return
 
                 await self.__select_semester(self._user_selected_semester)
@@ -210,7 +203,7 @@ class StudIPSession:
 
         if file.changed:
             timestamp = time.mktime(file.changed.timetuple())
-            await self.loop.run_in_executor(None, os.utime, dest, (timestamp, timestamp))
+            await self._loop.run_in_executor(None, os.utime, dest, (timestamp, timestamp))
         else:
             logging.warning("Can't set timestamp of file %s :: %s, because the value wasn't loaded from Stud.IP",
                             file, dest)
