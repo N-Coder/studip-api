@@ -11,9 +11,9 @@ SEMESTER_RE = re.compile(r'^(SS|WS) (\d{2})(.(\d{2}))?')
 
 @attr.s(hash=False)
 class Semester(object):
-    id: str = attr.ib()
-    name: str = attr.ib()
-    order: int = attr.ib(default=-1)
+    id = attr.ib()  # type: str
+    name = attr.ib()  # type: str
+    order = attr.ib(default=-1)  # type: int
 
     def __hash__(self):
         return hash(self.id)
@@ -41,11 +41,11 @@ class Semester(object):
 
 @attr.s(hash=False)
 class Course(object):
-    id: str = attr.ib()
-    semester: Semester = attr.ib()
-    number: int = attr.ib()
-    name: str = attr.ib()
-    type: str = attr.ib()
+    id = attr.ib()  # type: str
+    semester = attr.ib()  # type: Semester
+    number = attr.ib()  # type: int
+    name = attr.ib()  # type: str
+    type = attr.ib()  # type: str
 
     def __hash__(self):
         return hash(self.id)
@@ -87,16 +87,17 @@ class Course(object):
 
 @attr.s(hash=False)
 class File(object):
-    id: str = attr.ib()  # TODO course nr
-    course: Course = attr.ib()
-    parent: Any = attr.ib()
-    name: str = attr.ib()
-    author: str = attr.ib(default=None)
-    description: str = attr.ib(default=None)
-    size: int = attr.ib(default=None)
-    created: datetime = attr.ib(default=None)
-    changed: datetime = attr.ib(default=None)
-    is_single_child = attr.ib(default=False)
+    # TODO course nr
+    id = attr.ib()  # type: str
+    course = attr.ib()  # type: Course
+    parent = attr.ib()  # type: Any
+    name = attr.ib()  # type: str
+    author = attr.ib(default=None)  # type: str
+    description = attr.ib(default=None)  # type: str
+    size = attr.ib(default=None)  # type: int
+    created = attr.ib(default=None)  # type: datetime
+    changed = attr.ib(default=None)  # type: datetime
+    is_single_child = attr.ib(default=False)  # type:bool
 
     def __hash__(self):
         return hash(self.id)
@@ -120,7 +121,7 @@ class File(object):
 
 @attr.s(hash=False)
 class Folder(File):
-    contents: List[File] = attr.ib(default=None)
+    contents = attr.ib(default=None)  # type: List[File]
 
     @property
     def is_root(self):

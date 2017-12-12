@@ -28,15 +28,15 @@ class LoginError(StudIPError):
 
 @attr.s(hash=False)
 class StudIPSession:
-    _sso_base: str = attr.ib()
-    _studip_base: str = attr.ib()
-    _http_args: dict = attr.ib()
-    _loop: asyncio.AbstractEventLoop = attr.ib()
+    _sso_base = attr.ib()  # type: str
+    _studip_base = attr.ib()  # type: str
+    _http_args = attr.ib()  # type: dict
+    _loop = attr.ib()  # type: asyncio.AbstractEventLoop
 
     def __attrs_post_init__(self):
-        self._user_selected_semester: Semester = None
-        self._user_selected_ansicht: str = None
-        self._needs_reset_at: int = False
+        self._user_selected_semester = None  # type: Semester
+        self._user_selected_ansicht = None  # type: str
+        self._needs_reset_at = False  # type: int
         self._semester_select_lock = asyncio.Lock()
         self._background_tasks = WeakSet()
         if not self._loop:
@@ -186,7 +186,7 @@ class StudIPSession:
         if not dest:
             with NamedTemporaryFile(delete=False) as f:
                 dest = f.name
-        url = self._studip_url("/studip/sendfile.php?force_download=1&type=0&" \
+        url = self._studip_url("/studip/sendfile.php?force_download=1&type=0&"
                                + urlencode({"file_id": file.id, "file_name": file.name}))
         total_length = await self._fetch_total_length(url)
 
