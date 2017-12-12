@@ -154,8 +154,10 @@ class StudIPSession:
                 if not force and (not self._needs_reset_at or self._needs_reset_at > self._loop.time()):
                     return
 
-                await self.__select_semester(self._user_selected_semester)
-                await self.__select_ansicht(self._user_selected_ansicht)
+                if self._user_selected_semester:
+                    await self.__select_semester(self._user_selected_semester)
+                if self._user_selected_ansicht:
+                    await self.__select_ansicht(self._user_selected_ansicht)
 
                 self._needs_reset_at = False
         except:
