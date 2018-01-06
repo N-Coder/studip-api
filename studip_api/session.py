@@ -2,20 +2,17 @@ import asyncio
 import logging
 import os
 import time
-from tempfile import NamedTemporaryFile
 from typing import List
 from urllib.parse import urlencode
 from weakref import WeakSet
 
-import aiofiles
 import aiohttp
-import more_itertools
 from aiohttp import ClientError
 
+from studip_api.downloader import Download
 from studip_api.parsers import *
 
 log = logging.getLogger("studip_api.StudIPSession")
-log_download = log.getChild("download")
 
 
 class StudIPError(Exception):
@@ -182,95 +179,34 @@ class StudIPSession:
         ) as r:
             return parse_file_details(await r.text(), file)
 
-    async def download_file_contents(self, file: File, dest: str = None, chunk_size: int = 1024 * 256):
-        if not dest:
-            with NamedTemporaryFile(delete=False) as f:
-                dest = f.name
-        url = self._studip_url("/studip/sendfile.php?force_download=1&type=0&"
-                               + urlencode({"file_id": file.id, "file_name": file.name}))
-        total_length = await self._fetch_total_length(url)
+    async def download_file_contents(self, studip_file: File, local_dest: str = None, chunk_size: int = 1024 * 256):
+        log.info("Starting download %s -> %s", studip_file, local_dest)
+        download = Download(self.ahttp, self._get_download_url(studip_file), local_dest, chunk_size)
+        await download.start()
+        old_completed_future = download.completed
 
-        async with aiofiles.open(dest, 'wb') as af:
-            add_write_chunk(af)
-            await af.truncate(total_length)
+        async def await_completed():
+            ranges = await old_completed_future
+            log.info("Completed download %s -> %s", studip_file, local_dest)
 
-            # Calculating the start and the end index of each chunk
-            ranges = list(more_itertools.sliced(range(total_length), chunk_size))
-            requests = [self.ahttp.get(url, headers={"Range": "bytes={0}-{1}".format(i.start, i.stop)}) for i in ranges]
-            writers = [_write_response(req, af, rnge, total_length) for req, rnge in zip(requests, ranges)]
-            # TODO return Futures for separate ranges early
-            # TODO raise exceptions
-            done, pending = await asyncio.wait(writers)
-            assert not pending
+            val = 0
+            for r in ranges:
+                assert r.start <= val
+                val = r.stop
+            assert val == download.total_length
 
-        if file.changed:
-            timestamp = time.mktime(file.changed.timetuple())
-            await self._loop.run_in_executor(None, os.utime, dest, (timestamp, timestamp))
-        else:
-            logging.warning("Can't set timestamp of file %s :: %s, because the value wasn't loaded from Stud.IP",
-                            file, dest)
+            if studip_file.changed:
+                timestamp = time.mktime(studip_file.changed.timetuple())
+                await self._loop.run_in_executor(None, os.utime, local_dest, (timestamp, timestamp))
+            else:
+                log.warning("Can't set timestamp of file %s :: %s, because the value wasn't loaded from Stud.IP",
+                            studip_file, local_dest)
 
-        return dest
+            return ranges
 
-    async def _fetch_total_length(self, url):
-        async with self.ahttp.head(url) as r:
-            accept_ranges = r.headers.get("Accept-Ranges", "")
-            if accept_ranges != "bytes":
-                log_download.debug("Server is not indicating Accept-Ranges for file download:\n%s\n%s",
-                                   r.request_info, r)
-            total_length = r.content_length or r.headers.get("Content-Length", None)
-            if not total_length and "Content-Range" in r.headers:
-                content_range = r.headers["Content-Range"]
-                log_download.debug("Stud.IP didn't send Content-Length but Content-Range '%s'", content_range)
-                match = re.match("bytes ([0-9]*)-([0-9]*)/([0-9]*)", content_range)
-                log_download.debug("Extracted Content-Length from Content-Range: %s => %s", match,
-                                   match.groups() if match else "()")
-                total_length = match.group(3)
-            total_length = int(total_length)
-        return total_length
+        download.completed = asyncio.ensure_future(await_completed())
+        return download
 
-
-async def _write_response(req, af, rnge, total_length):
-    async with req as resp:
-        requested_rage = resp.request_info.headers.get("Range", "")
-        expected_range = "bytes %s-%s/%s" % (rnge.start, rnge.stop - 1, total_length)
-        expected_range_plus1 = "bytes %s-%s/%s" % (rnge.start, rnge.stop, total_length)
-        actual_range = resp.headers.get("Content-Range", "")
-        if expected_range != actual_range and expected_range_plus1 != actual_range:
-            log_download.warning("Requested range %s, expected %s, got %s",
-                                 requested_rage, expected_range, actual_range)
-
-        offset = rnge.start
-        while True:
-            chunk, end_of_HTTP_chunk = await resp.content.readchunk()
-            if not chunk:
-                break
-            log_download.debug("Chunk %s: writing at offset %6d + %6d new bytes = %6d new offset. Data: %s...%s",
-                               actual_range, offset, len(chunk), offset + len(chunk), chunk[:10], chunk[-10:])
-            written = await af.write_chunk(chunk, offset)
-            offset += written
-
-        log_download.debug("Chunk %s: wrote bytes from %6d to %6d", actual_range, rnge.start, offset)
-
-
-def add_write_chunk(af):
-    af._lock = asyncio.Lock()
-
-    def _blocking_write_chunk(chunk, offset):
-        log_download.debug("FH %s: writing at offset %6d + %6d new bytes = %6d new offset. Data: %s...%s",
-                           af._file, offset, len(chunk), offset + len(chunk), chunk[:10], chunk[-10:])
-        af._file.seek(offset)
-        written = af._file.write(chunk)
-        new_offset = af._file.tell()
-        log_download.debug("FH %s: wrote   at offset %6d + %6d new bytes = %6d new offset",
-                           af._file, offset, written, new_offset)
-        assert written == len(chunk)
-        assert new_offset == offset + written
-        return written
-
-    async def write_chunk(chunk, offset):
-        async with af._lock:
-            return await af._loop.run_in_executor(af._executor, _blocking_write_chunk, chunk, offset)
-
-    af.write_chunk = write_chunk
-    return af
+    def _get_download_url(self, studip_file):
+        return self._studip_url("/studip/sendfile.php?force_download=1&type=0&"
+                                + urlencode({"file_id": studip_file.id, "file_name": studip_file.name}))
