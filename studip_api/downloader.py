@@ -172,6 +172,12 @@ class Download(object):
         return written
 
     async def await_readable(self, offset, length):
+        if self.completed.done():
+            # Rethrow exception if one of the ranges failed. This may lead to a range first being readable,
+            # but becoming unreadable later if any other range fails after this one was completed.
+            self.completed.result()
+            return
+
         requested_range = range(offset, min(offset + length, self.total_length))
         completed_ranges = []
         for r, f in self.parts:
