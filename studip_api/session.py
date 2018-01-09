@@ -35,7 +35,7 @@ class StudIPSession:
         self._user_selected_ansicht = None  # type: str
         self._needs_reset_at = False  # type: int
         self._semester_select_lock = asyncio.Lock()
-        self._background_tasks = WeakSet()
+        self._background_tasks = WeakSet()  # TODO better management of (failing of) background tasks
         if not self._loop:
             self._loop = asyncio.get_event_loop()
 
@@ -179,7 +179,8 @@ class StudIPSession:
         ) as r:
             return parse_file_details(await r.text(), file)
 
-    async def download_file_contents(self, studip_file: File, local_dest: str = None, chunk_size: int = 1024 * 256):
+    async def download_file_contents(self, studip_file: File, local_dest: str = None,
+                                     chunk_size: int = 1024 * 256) -> Download:
         log.info("Starting download %s -> %s", studip_file, local_dest)
         download = Download(self.ahttp, self._get_download_url(studip_file), local_dest, chunk_size)
         await download.start()
