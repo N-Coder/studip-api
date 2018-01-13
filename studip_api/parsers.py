@@ -196,7 +196,7 @@ def parse_file_list_index(html, course: Course, folder_info: Optional[Folder]):
             name = tds[2].text.strip()
             size = int(tds[3].attrs['data-sort-value'])
             author = tds[4].text.strip()
-            changed = parse_date(tds[5].attrs['title'])  # TODO created?
+            changed = parse_date(tds[5].attrs['title'])
 
             files.append(type(id=fid, course=course, parent=folder, name=name, author=author, changed=changed,
                               size=size if size >= 0 else None))

@@ -159,7 +159,6 @@ class Download(object):
         pos = self.oiofile.seek(offset)
         written = self.oiofile.write(chunk)
         new_offset = self.oiofile.tell()
-        # new_offset = pos + written  # FIXME
 
         log_downloading.debug("FH %s: wrote   at offset %6d + %6d new bytes = %6d new offset",
                               self.oiofile, pos, written, new_offset)

@@ -101,8 +101,6 @@ class StudIPSession:
                       self._user_selected_semester, self._user_selected_ansicht)
             return list(parse_semester_list(await r.text()))
 
-    # TODO alternatively, parse list from "Farbgruppierung" and make further requests to get information for all courses
-
     async def get_courses(self, semester: Semester) -> List[Course]:
         if not self._user_selected_semester or not self._user_selected_ansicht:
             await self.get_semesters()

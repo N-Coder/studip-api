@@ -87,7 +87,6 @@ class Course(object):
 
 @attr.s(hash=False)
 class File(object):
-    # TODO course nr
     id = attr.ib()  # type: str
     course = attr.ib()  # type: Course
     parent = attr.ib()  # type: Any
