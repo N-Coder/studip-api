@@ -185,23 +185,27 @@ class StudIPSession:
         old_completed_future = download.completed
 
         async def await_completed():
-            ranges = await old_completed_future
-            log.info("Completed download %s -> %s", studip_file, local_dest)
+            try:
+                ranges = await old_completed_future
+                log.info("Completed download %s -> %s", studip_file, local_dest)
 
-            val = 0
-            for r in ranges:
-                assert r.start <= val
-                val = r.stop
-            assert val == download.total_length
+                val = 0
+                for r in ranges:
+                    assert r.start <= val
+                    val = r.stop
+                assert val == download.total_length
 
-            if studip_file.changed:
-                timestamp = time.mktime(studip_file.changed.timetuple())
-                await self._loop.run_in_executor(None, os.utime, local_dest, (timestamp, timestamp))
-            else:
-                log.warning("Can't set timestamp of file %s :: %s, because the value wasn't loaded from Stud.IP",
-                            studip_file, local_dest)
+                if studip_file.changed:
+                    timestamp = time.mktime(studip_file.changed.timetuple())
+                    await self._loop.run_in_executor(None, os.utime, local_dest, (timestamp, timestamp))
+                else:
+                    log.warning("Can't set timestamp of file %s :: %s, because the value wasn't loaded from Stud.IP",
+                                studip_file, local_dest)
 
-            return ranges
+                return ranges
+            except:
+                log.warning("Download %s -> %s failed", studip_file, local_dest, exc_info=True)
+                raise
 
         download.completed = asyncio.ensure_future(await_completed())
         return download

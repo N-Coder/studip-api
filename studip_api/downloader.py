@@ -156,6 +156,12 @@ class Download(object):
         log_downloading.debug("FH %s: writing at offset %6d + %6d new bytes = %6d new offset. Data: %s...%s",
                               self.oiofile, offset, len(chunk), offset + len(chunk), chunk[:10], chunk[-10:])
 
+        # once the file handle is closed all pending operations should be cancelled
+        if self.oiofile.closed:
+            assert self.completed.done(), "File %s was closed before completion future %s was done." \
+                                          % (self.oiofile, self.completed)
+            raise asyncio.CancelledError() from self.completed.exception()
+
         pos = self.oiofile.seek(offset)
         written = self.oiofile.write(chunk)
         new_offset = self.oiofile.tell()
