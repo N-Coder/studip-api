@@ -72,6 +72,15 @@ class Download(object):
 
         log.debug("Loaded completed download %s containing %s bytes", self.local_path, self.total_length)
 
+    async def __await_completed(self):
+        try:
+            completed_ranges = await asyncio.gather(*(f for r, f in self.parts))
+            log.debug("Finished download of %s, expecting %s bytes split into %s parts",
+                      self.local_path, self.total_length, len(self.parts))
+            return completed_ranges
+        finally:
+            await self.aiofile.close()
+
     async def start(self):
         self.total_length = await self.fetch_total_length()
 
@@ -85,17 +94,28 @@ class Download(object):
         except:
             self.aiofile.close()
             raise
+        self.completed = asyncio.ensure_future(self.__await_completed())
 
-        async def await_completed():
-            try:
-                completed_ranges = await asyncio.gather(*(f for r, f in self.parts))
-                log.debug("Finished download of %s, expecting %s bytes split into %s parts",
-                          self.local_path, self.total_length, len(self.parts))
-                return completed_ranges
-            finally:
-                await self.aiofile.close()
+    async def fork(self):
+        fork = Download(self.ahttp, self.url, self.local_path, self.chunk_size)
+        assert self.total_length >= 0
+        fork.total_length = self.total_length
+        fork.aiofile = await aiofiles.open(self.local_path, "wb", buffering=0)
 
-        self.completed = asyncio.ensure_future(await_completed())
+        def retry_range(rnge, future):
+            if future.cancelled() or future.exception():
+                return asyncio.ensure_future(fork.download_range(rnge))
+            else:
+                return future
+
+        try:
+            fork.parts = [(r, retry_range(r, f)) for r, f in self.parts]
+        except:
+            fork.aiofile.close()
+            raise
+
+        fork.completed = asyncio.ensure_future(self.__await_completed())
+        return fork
 
     async def fetch_total_length(self):
         async with self.ahttp.head(self.url) as r:
