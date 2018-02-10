@@ -24,7 +24,7 @@ class LoginError(StudIPError):
 
 
 @attr.s(hash=False)
-class StudIPSession:
+class StudIPSession(object):
     _sso_base = attr.ib()  # type: str
     _studip_base = attr.ib()  # type: str
     _http_args = attr.ib()  # type: dict
