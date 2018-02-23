@@ -7,10 +7,12 @@ from urllib.parse import urlencode
 from weakref import WeakSet
 
 import aiohttp
+import attr
 from aiohttp import ClientError
 
 from studip_api.downloader import Download
-from studip_api.parsers import *
+from studip_api.model import Course, File, Folder, Semester
+from studip_api.parsers import Parser, ParserError
 
 log = logging.getLogger("studip_api.StudIPSession")
 
@@ -49,6 +51,8 @@ class StudIPSession(object):
         if http_args:
             raise ValueError("Unknown http_args %s", http_args)
 
+        self.parser = Parser()
+
     async def close(self):
         try:
             for task in self._background_tasks:
@@ -67,7 +71,7 @@ class StudIPSession(object):
     async def do_login(self, user_name, password):
         try:
             async with self.ahttp.get(self._studip_url("/studip/index.php?again=yes&sso=shib")) as r:
-                post_url = parse_login_form(await r.text())
+                post_url = self.parser.parse_login_form(await r.text())
         except (ClientError, ParserError) as e:
             raise LoginError("Could not initialize Shibboleth SSO login") from e
 
@@ -80,7 +84,7 @@ class StudIPSession(object):
                         "uApprove.consent-revocation": "",
                         "_eventId_proceed": ""
                     }) as r:
-                form_data = parse_saml_form(await r.text())
+                form_data = self.parser.parse_saml_form(await r.text())
         except (ClientError, ParserError) as e:
             raise LoginError("Shibboleth SSO login failed") from e
 
@@ -94,12 +98,12 @@ class StudIPSession(object):
 
     async def get_semesters(self) -> List[Semester]:
         async with self.ahttp.get(self._studip_url("/studip/dispatch.php/my_courses")) as r:
-            selected_semester, selected_ansicht = parse_user_selection(await r.text())
+            selected_semester, selected_ansicht = self.parser.parse_user_selection(await r.text())
             self._user_selected_semester = self._user_selected_semester or selected_semester
             self._user_selected_ansicht = self._user_selected_ansicht or selected_ansicht
             log.debug("User selected semester %s in ansicht %s",
                       self._user_selected_semester, self._user_selected_ansicht)
-            return list(parse_semester_list(await r.text()))
+            return list(self.parser.parse_semester_list(await r.text()))
 
     async def get_courses(self, semester: Semester) -> List[Course]:
         if not self._user_selected_semester or not self._user_selected_ansicht:
@@ -118,7 +122,7 @@ class StudIPSession(object):
                     self._loop.call_later(10, lambda: asyncio.ensure_future(self.__reset_selections(quiet=True)))
                 )
 
-            courses = list(parse_course_list(await self.__select_semester(semester.id), semester))
+            courses = list(self.parser.parse_course_list(await self.__select_semester(semester.id), semester))
             return courses
 
     async def __select_semester(self, semester):
@@ -126,7 +130,7 @@ class StudIPSession(object):
         async with self.ahttp.post(
                 self._studip_url("/studip/dispatch.php/my_courses/set_semester"),
                 data={"sem_select": semester}) as r:
-            selected_semester, selected_ansicht = parse_user_selection(await r.text())
+            selected_semester, selected_ansicht = self.parser.parse_user_selection(await r.text())
             assert selected_semester == semester, "Tried to select semester %s, but Stud.IP delivered semester %s" % \
                                                   (semester, selected_semester)
             return await r.text()
@@ -136,7 +140,7 @@ class StudIPSession(object):
         async with self.ahttp.post(
                 self._studip_url("/studip/dispatch.php/my_courses/store_groups"),
                 data={"select_group_field": ansicht}) as r:
-            selected_semester, selected_ansicht = parse_user_selection(await r.text())
+            selected_semester, selected_ansicht = self.parser.parse_user_selection(await r.text())
             assert selected_ansicht == ansicht, "Tried to select ansicht %s, but Stud.IP delivered ansicht %s" % \
                                                 (ansicht, selected_ansicht)
             return await r.text()
@@ -163,19 +167,19 @@ class StudIPSession(object):
 
     async def get_course_files(self, course: Course) -> Folder:
         async with self.ahttp.get(self._studip_url("/studip/dispatch.php/course/files/index?cid=" + course.id)) as r:
-            return parse_file_list_index(await r.text(), course, None)
+            return self.parser.parse_file_list_index(await r.text(), course, None)
 
     async def get_folder_files(self, folder: Folder) -> Folder:
         async with self.ahttp.get(
                 self._studip_url("/studip/dispatch.php/course/files/index/%s?cid=%s" % (folder.id, folder.course.id))
         ) as r:
-            return parse_file_list_index(await r.text(), folder.course, folder)
+            return self.parser.parse_file_list_index(await r.text(), folder.course, folder)
 
     async def get_file_info(self, file: File) -> File:
         async with self.ahttp.get(
                 self._studip_url("/studip/dispatch.php/file/details/%s?cid=%s" % (file.id, file.course.id))
         ) as r:
-            return parse_file_details(await r.text(), file)
+            return self.parser.parse_file_details(await r.text(), file)
 
     async def download_file_contents(self, studip_file: File, local_dest: str = None,
                                      chunk_size: int = 1024 * 256) -> Download:
