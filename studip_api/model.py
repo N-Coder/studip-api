@@ -1,22 +1,173 @@
+import inspect
+import logging
 import re
 from datetime import datetime
-from typing import Any, List
+from itertools import chain
+from typing import Dict, List, Optional
 
 import attr
+from attr import asdict, fields
 
 WORD_SEPARATOR_RE = re.compile(r'[-. _/()]+')
 NUMBER_RE = re.compile(r'^([0-9]+)|([IVXLCDM]+)$')
 SEMESTER_RE = re.compile(r'^(SS|WS) (\d{2})(.(\d{2}))?')
 
+__all__ = ["ModelObjectMeta", "ModelObject", "Semester", "Course", "File", "Folder"]
+pyid = id
+log = logging.getLogger("studip_api.model")
+
+
+class ModelObjectMeta(type):
+    TRACKED_CLASSES = {}  # type: Dict[str, "ModelObject"]
+
+    def __new__(mcs, name, bases, attrs):
+        log.debug("New class %s%s: %s", name, bases, attrs)
+        track = (name != "ModelObject" and not any(hasattr(base, "INSTANCES") for base in bases))
+        if track:
+            log.debug("Tracking instances for %s", name)
+            attrs["INSTANCES"] = {}
+        cls = super(ModelObjectMeta, mcs).__new__(mcs, name, bases, attrs)
+        if track:
+            mcs.TRACKED_CLASSES[name] = cls
+        return cls
+
+    @classmethod
+    def export_all_data(mcs):
+        return {k: v.export_data() for k, v in mcs.TRACKED_CLASSES}
+
+    @classmethod
+    def import_all_data(mcs, data, update=False):
+        assert data.keys() == mcs.TRACKED_CLASSES.keys()
+        for key in mcs.TRACKED_CLASSES.keys():
+            mcs.TRACKED_CLASSES[key].import_data(data[key], update)
+
 
 @attr.s(hash=False)
-class Semester(object):
+class ModelObject(object, metaclass=ModelObjectMeta):
     id = attr.ib()  # type: str
-    name = attr.ib()  # type: str
-    order = attr.ib(default=-1)  # type: int
+
+    def __new__(cls, id, *args, **kwargs):
+        assert cls != ModelObject
+        if id not in cls.INSTANCES:
+            obj = object.__new__(cls)
+            cls.INSTANCES[id] = obj
+            log.debug("Create new %s instance for UID %s at %s", cls.__name__, id, pyid(obj))
+            return obj
+        else:
+            print("Tried to create new %s instance for UID %s, but instance already exists at %s. "
+                  "Update will be made via automatic call to __init__." % (cls.__name__, id, pyid(cls.INSTANCES[id])))
 
     def __hash__(self):
         return hash(self.id)
+
+    @classmethod
+    def get_or_create(cls, id, *args, **kwargs):
+        if isinstance(id, cls):
+            return cls.INSTANCES.setdefault(id.id, id)
+        if isinstance(id, dict):
+            assert not (args or kwargs)
+            kwargs = id
+            id = kwargs.pop("id")
+        assert isinstance(id, str)
+
+        if id not in cls.INSTANCES:
+            cls.INSTANCES[id] = cls(id, *args, **kwargs)
+        else:
+            log.debug("Reuse %s instance for UID %s at %s", cls.__name__, id, pyid(cls.INSTANCES[id]))
+
+        return cls.INSTANCES[id]
+
+    @classmethod
+    def update_or_create(cls, id, *args, **kwargs):
+        if isinstance(id, cls):
+            id = asdict(id, recurse=False)
+        if isinstance(id, dict):
+            assert not (args or kwargs)
+            kwargs = id
+            id = kwargs.pop("id")
+        assert isinstance(id, str)
+
+        if id not in cls.INSTANCES:
+            obj = cls(id, *args, **kwargs)
+            cls.INSTANCES[id] = obj
+        else:
+            obj = cls.INSTANCES[id]
+            cls.update(id, obj, args, kwargs)
+
+        return obj
+
+    @classmethod
+    def update(cls, id, obj, args, kwargs):
+        log.debug("Update %s instance for UID %s at %s", cls.__name__, id, pyid(cls.INSTANCES[id]))
+        bound_args = inspect.signature(cls).bind(id, *args, **kwargs)
+        for a in fields(obj.__class__):
+            if not a.init:
+                continue
+
+            attr_name = a.name
+            if attr_name in bound_args.arguments:
+                setattr(obj, attr_name, bound_args.arguments[attr_name])
+                continue
+
+            # deal with private attributes
+            init_name = attr_name if attr_name[0] != "_" else attr_name[1:]
+            if init_name in bound_args.arguments:
+                setattr(obj, attr_name, bound_args.arguments[init_name])
+                continue
+
+    @classmethod
+    def list_instances(cls):
+        return cls.INSTANCES.values()
+
+    @classmethod
+    def export_data(cls):
+        return [
+            {
+                k: transform(v)
+                for k, v in asdict(obj, recurse=False).items()
+            } for obj in cls.list_instances()
+        ]
+
+    @classmethod
+    def import_data(cls, data, update=False):
+        creator = cls.update_or_create if update else cls.get_or_create
+        return [creator(obj) for obj in data]
+
+
+def transform(v):
+    if isinstance(v, datetime):
+        return v.timestamp()
+    elif isinstance(v, ModelObject):
+        return v.id
+    elif isinstance(v, (tuple, list, set)):
+        return v.__class__(transform(vv) for vv in v)
+    else:
+        assert v is None or isinstance(v, (str, int, float, bool))
+        return v
+
+
+def datetime_converter(data):
+    if isinstance(data, datetime):
+        return data
+    elif isinstance(data, (int, float)):
+        return datetime.fromtimestamp(data)
+    else:
+        assert data is None
+        return None
+
+
+def file_get_or_create(id, *args, **kwargs):
+    # indirection for File.parent: Optional[File] from within body of class File
+    if id:
+        return File.get_or_create(id, *args, **kwargs)
+    else:
+        return None
+
+
+@attr.s(hash=False)
+class Semester(ModelObject):
+    name = attr.ib()  # type: str
+    order = attr.ib(default=-1)  # type: int
 
     def __str__(self):
         return self.name
@@ -40,15 +191,11 @@ class Semester(object):
 
 
 @attr.s(hash=False)
-class Course(object):
-    id = attr.ib()  # type: str
-    semester = attr.ib()  # type: Semester
+class Course(ModelObject):
+    semester = attr.ib(converter=Semester.get_or_create)  # type: Semester
     number = attr.ib()  # type: int
     name = attr.ib()  # type: str
     type = attr.ib()  # type: str
-
-    def __hash__(self):
-        return hash(self.id)
 
     def __str__(self):
         return "%s %s" % (self.number, self.name)
@@ -86,20 +233,16 @@ class Course(object):
 
 
 @attr.s(hash=False)
-class File(object):
-    id = attr.ib()  # type: str
-    course = attr.ib()  # type: Course
-    parent = attr.ib()  # type: Any
+class File(ModelObject):
+    course = attr.ib(converter=Course.get_or_create)  # type: Course
+    parent = attr.ib(repr=False, converter=file_get_or_create)  # type: Optional["File"]
     name = attr.ib()  # type: str
     author = attr.ib(default=None)  # type: str
     description = attr.ib(default=None)  # type: str
     size = attr.ib(default=None)  # type: int
-    created = attr.ib(default=None)  # type: datetime
-    changed = attr.ib(default=None)  # type: datetime
+    created = attr.ib(default=None, converter=datetime_converter)  # type: datetime
+    changed = attr.ib(default=None, converter=datetime_converter)  # type: datetime
     is_single_child = attr.ib(default=False)  # type:bool
-
-    def __hash__(self):
-        return hash(self.id)
 
     @property
     def path(self):
@@ -111,20 +254,58 @@ class File(object):
     def __str__(self):
         return "/".join(self.path)
 
+    @property
+    def is_root(self):
+        return self.parent is None
+
     def is_folder(self):
         return False
 
     def complete(self):
         return self.id and self.course and self.parent and self.name and self.changed
 
+    @classmethod
+    def list_instances(cls):
+        def traverse(inst):
+            yield inst
+            if isinstance(inst, Folder):
+                for cont in inst.contents:
+                    yield from traverse(cont)
+
+        # sort parents before contents, so that parent is known when child is instantiated
+        instances = list(chain.from_iterable(traverse(i) for i in cls.INSTANCES.values() if i.is_root))
+        assert len(instances) == len(cls.INSTANCES)
+        return instances
+
+    @classmethod
+    def import_data(cls, data, update=False):
+        assert cls in (File, Folder)
+        folder_creator = Folder.update_or_create if update else Folder.get_or_create
+        file_creator = File.update_or_create if update else File.get_or_create
+
+        instances = []
+        for obj in data:
+            if "contents" in obj:
+                inst = folder_creator(contents=None, **{k: v for k, v in obj.items() if k != "contents"})
+                instances.append((inst, obj["contents"]))
+            else:
+                inst = file_creator(obj)
+                instances.append((inst, None))
+
+        # deserialize contents after all files and folders were deserialized to break cyclic references
+        for inst, contents in instances:
+            if not isinstance(inst, Folder):
+                continue
+
+            if contents is not None and (inst.contents is None or update):
+                inst.contents = [File.INSTANCES.get(uid) for uid in contents]
+
+        return [inst for inst, contents in instances]
+
 
 @attr.s(hash=False)
 class Folder(File):
-    contents = attr.ib(default=None)  # type: List[File]
-
-    @property
-    def is_root(self):
-        return not self.parent
+    contents = attr.ib(default=None, repr=False)  # type: Optional[List[File]]
 
     def is_folder(self):
         return True
