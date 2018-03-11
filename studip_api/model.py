@@ -37,7 +37,8 @@ class ModelObjectMeta(type):
 
     @classmethod
     def import_all_data(mcs, data, update=False):
-        assert data.keys() == mcs.TRACKED_CLASSES.keys()
+        if data.keys() != mcs.TRACKED_CLASSES.keys():
+            raise ValueError("Can't import keys %s, expected %s" % (data.keys(), mcs.TRACKED_CLASSES.keys()))
         for key in mcs.TRACKED_CLASSES.keys():
             mcs.TRACKED_CLASSES[key].import_data(data[key], update)
 
@@ -47,15 +48,16 @@ class ModelObject(object, metaclass=ModelObjectMeta):
     id = attr.ib()  # type: str
 
     def __new__(cls, id, *args, **kwargs):
-        assert cls != ModelObject
+        if cls == ModelObject:
+            raise ValueError("Can't instantiate ModelObject")
         if id not in cls.INSTANCES:
             obj = object.__new__(cls)
             cls.INSTANCES[id] = obj
             log.debug("Create new %s instance for UID %s at %s", cls.__name__, id, pyid(obj))
             return obj
         else:
-            print("Tried to create new %s instance for UID %s, but instance already exists at %s. "
-                  "Update will be made via automatic call to __init__." % (cls.__name__, id, pyid(cls.INSTANCES[id])))
+            log.debug("Tried to create new %s instance for UID %s, but instance already exists at %s. "
+                      "Update will be made via automatic call to __init__.", cls.__name__, id, pyid(cls.INSTANCES[id]))
 
     def __hash__(self):
         return hash(self.id)
@@ -65,10 +67,12 @@ class ModelObject(object, metaclass=ModelObjectMeta):
         if isinstance(id, cls):
             return cls.INSTANCES.setdefault(id.id, id)
         if isinstance(id, dict):
-            assert not (args or kwargs)
+            if args or kwargs:
+                raise ValueError("get_or_create %s either takes id as dict or kwargs, not both" % cls)
             kwargs = id
             id = kwargs.pop("id")
-        assert isinstance(id, str)
+        if not isinstance(id, str):
+            raise ValueError("invalid id %s of type %s" % (id, id.__class__))
 
         if id not in cls.INSTANCES:
             cls.INSTANCES[id] = cls(id, *args, **kwargs)
@@ -82,10 +86,12 @@ class ModelObject(object, metaclass=ModelObjectMeta):
         if isinstance(id, cls):
             id = asdict(id, recurse=False)
         if isinstance(id, dict):
-            assert not (args or kwargs)
+            if args or kwargs:
+                raise ValueError("update_or_create %s either takes id as dict or kwargs, not both" % cls)
             kwargs = id
             id = kwargs.pop("id")
-        assert isinstance(id, str)
+        if not isinstance(id, str):
+            raise ValueError("invalid id %s of type %s" % (id, id.__class__))
 
         if id not in cls.INSTANCES:
             obj = cls(id, *args, **kwargs)
@@ -142,7 +148,8 @@ def transform(v):
     elif isinstance(v, (tuple, list, set)):
         return v.__class__(transform(vv) for vv in v)
     else:
-        assert v is None or isinstance(v, (str, int, float, bool))
+        assert v is None or isinstance(v, (str, int, float, bool)), \
+            "can't transform value %s of type %s" % (v, v.__class__)
         return v
 
 
@@ -152,7 +159,7 @@ def datetime_converter(data):
     elif isinstance(data, (int, float)):
         return datetime.fromtimestamp(data)
     else:
-        assert data is None
+        assert data is None, "can't convert non-datetime value %s of type %s" % (data, data.__class__)
         return None
 
 
@@ -258,7 +265,7 @@ class File(ModelObject):
     def is_root(self):
         return self.parent is None
 
-    def is_folder(self):
+    def is_folder(self):  # TODO make property
         return False
 
     def complete(self):
@@ -274,12 +281,13 @@ class File(ModelObject):
 
         # sort parents before contents, so that parent is known when child is instantiated
         instances = list(chain.from_iterable(traverse(i) for i in cls.INSTANCES.values() if i.is_root))
-        assert len(instances) == len(cls.INSTANCES)
+        assert len(instances) == len(cls.INSTANCES), "tried to sort %s instances of File for serialization, " \
+                                                     "but only got %s" % (len(cls.INSTANCES), len(instances))
         return instances
 
     @classmethod
     def import_data(cls, data, update=False):
-        assert cls in (File, Folder)
+        assert cls in (File, Folder), "File.import_data doesn't work for class %s" % cls
         folder_creator = Folder.update_or_create if update else Folder.get_or_create
         file_creator = File.update_or_create if update else File.get_or_create
 

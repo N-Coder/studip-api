@@ -2,13 +2,13 @@ import asyncio
 import logging
 import os
 import time
+from aiohttp import ClientError
 from typing import List
 from urllib.parse import urlencode
 from weakref import WeakSet
 
 import aiohttp
 import attr
-from aiohttp import ClientError
 
 from studip_api.downloader import Download
 from studip_api.model import Course, File, Folder, Semester
@@ -27,6 +27,8 @@ class LoginError(StudIPError):
 
 @attr.s(hash=False)
 class StudIPSession(object):
+    # TODO clean up attributes of Session class
+
     _sso_base = attr.ib()  # type: str
     _studip_base = attr.ib()  # type: str
     _http_args = attr.ib()  # type: dict
@@ -44,10 +46,12 @@ class StudIPSession(object):
         http_args = dict(self._http_args)
         connector = aiohttp.TCPConnector(loop=self._loop, limit=http_args.pop("limit"),
                                          keepalive_timeout=http_args.pop("keepalive_timeout"),
-                                         force_close=http_args.pop("force_close"))
+                                         force_close=http_args.pop("force_close"),
+                                         verify_ssl=http_args.pop("verify_ssl", False))
         self.ahttp = aiohttp.ClientSession(connector=connector, loop=self._loop,
                                            read_timeout=http_args.pop("read_timeout"),
-                                           conn_timeout=http_args.pop("conn_timeout"))
+                                           conn_timeout=http_args.pop("conn_timeout"),
+                                           cookies=http_args.pop("cookies", None))
         if http_args:
             raise ValueError("Unknown http_args %s", http_args)
 
@@ -122,8 +126,7 @@ class StudIPSession(object):
                     self._loop.call_later(10, lambda: asyncio.ensure_future(self.__reset_selections(quiet=True)))
                 )
 
-            courses = list(self.parser.parse_course_list(await self.__select_semester(semester.id), semester))
-            return courses
+            return list(self.parser.parse_course_list(await self.__select_semester(semester.id), semester))
 
     async def __select_semester(self, semester):
         semester = semester or "current"
@@ -195,9 +198,10 @@ class StudIPSession(object):
 
                 val = 0
                 for r in ranges:
-                    assert r.start <= val
+                    assert r.start <= val, "Non-connected ranges: %s" % ranges
                     val = r.stop
-                assert val == download.total_length
+                assert val == download.total_length, "Completed ranges %s don't cover file length %s" % \
+                                                     (ranges, download.total_length)
 
                 if studip_file.changed:
                     timestamp = time.mktime(studip_file.changed.timetuple())

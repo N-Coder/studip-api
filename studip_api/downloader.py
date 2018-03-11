@@ -98,7 +98,7 @@ class Download(object):
 
     async def fork(self):
         fork = Download(self.ahttp, self.url, self.local_path, self.chunk_size)
-        assert self.total_length >= 0
+        assert self.total_length >= 0, "tried to fork Download that wasn't started"
         fork.total_length = self.total_length
         fork.aiofile = await aiofiles.open(self.local_path, "wb", buffering=0)
 
@@ -209,6 +209,9 @@ class Download(object):
             if max(requested_range.start, r.start) < min(requested_range.stop, r.stop):
                 completed_ranges.append(await f)
 
+        assert len(completed_ranges) > 0, \
+            "No range of file (length %s) seems to satisfy read request with offset %s and length %s." % \
+            (self.total_length, offset, length)
         first = completed_ranges[0].start
         last = first
         for r in completed_ranges:

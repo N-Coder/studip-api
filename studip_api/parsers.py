@@ -55,10 +55,18 @@ def find_message(soup):
 
 
 def reuse_folder(reused_folder, id, course, parent, name, contents):
-    assert id == reused_folder.id
-    assert course == reused_folder.course
-    assert (parent == reused_folder.parent) or (parent == reused_folder.parent.id)
-    assert name == reused_folder.name or not reused_folder.name
+    assert id == reused_folder.id, \
+        "can't reuse folder %s with ID %s for a folder with different ID %s" % \
+        (reused_folder, reused_folder.id, id)
+    assert course == reused_folder.course, \
+        "can't reuse folder %s with course %s for a folder with different course %s" % \
+        (reused_folder, reused_folder.course, course)
+    assert (parent == reused_folder.parent) or (parent == reused_folder.parent.id), \
+        "can't reuse folder %s with parent %s for a folder with different parent %s" % \
+        (reused_folder, reused_folder.parent, parent)
+    assert name == reused_folder.name or not reused_folder.name, \
+        "can't reuse folder %s with name %s for a folder with different name %s" % \
+        (reused_folder, reused_folder.name, name)
 
     folder = reused_folder
     folder.contents = contents
@@ -82,7 +90,7 @@ class ParserError(Exception):
 
 @attr.s()
 class Parser(object):
-    SemesterFactory = attr.ib(default=model.Semester)
+    SemesterFactory = attr.ib(default=model.Semester)  # TODO rename
     CourseFactory = attr.ib(default=model.Course)
     FileFactory = attr.ib(default=model.File)
     FolderFactory = attr.ib(default=model.Folder)
@@ -191,7 +199,8 @@ class Parser(object):
         caption_paths = table.find("caption").find("div", class_="caption-container").find_all("a")
         paths = [(get_file_id_from_url(a.attrs["href"]), a.text.strip()) for a in caption_paths]
 
-        assert paths[-1][0] == folder_id
+        if paths[-1][0] != folder_id:
+            raise ParserError("path %s doesn't end with folder_id %s" % (paths, folder_id), soup)
         is_root = len(paths) == 1
         folder_name = paths[-1][1]
         parent_folder_id = paths[-2][0] if not is_root else None
