@@ -18,7 +18,7 @@ log = logging.getLogger("studip_api.model")
 
 
 class ModelObjectMeta(type):
-    TRACKED_CLASSES = {}  # type: Dict[str, "ModelObject"]
+    TRACKED_CLASSES = {}  # type: Dict[str, "ModelObjectMeta"]
 
     def __new__(mcs, name, bases, attrs):
         log.debug("New class %s%s: %s", name, bases, attrs)
@@ -29,11 +29,12 @@ class ModelObjectMeta(type):
         cls = super(ModelObjectMeta, mcs).__new__(mcs, name, bases, attrs)
         if track:
             mcs.TRACKED_CLASSES[name] = cls
+            cls.__tracked_class__ = cls
         return cls
 
     @classmethod
     def export_all_data(mcs):
-        return {k: v.export_data() for k, v in mcs.TRACKED_CLASSES}
+        return {k: v.export_data() for k, v in mcs.TRACKED_CLASSES.items()}
 
     @classmethod
     def import_all_data(mcs, data, update=False):
@@ -275,7 +276,7 @@ class File(ModelObject):
     def list_instances(cls):
         def traverse(inst):
             yield inst
-            if isinstance(inst, Folder):
+            if isinstance(inst, Folder) and inst.contents:
                 for cont in inst.contents:
                     yield from traverse(cont)
 
