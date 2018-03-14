@@ -2,13 +2,13 @@ import asyncio
 import logging
 import os
 import time
-from aiohttp import ClientError
 from typing import List
 from urllib.parse import urlencode
 from weakref import WeakSet
 
 import aiohttp
 import attr
+from aiohttp import ClientError
 
 from studip_api.downloader import Download
 from studip_api.model import Course, File, Folder, Semester
@@ -187,8 +187,12 @@ class StudIPSession(object):
     async def download_file_contents(self, studip_file: File, local_dest: str = None,
                                      chunk_size: int = 1024 * 256) -> Download:
         log.info("Starting download %s -> %s", studip_file, local_dest)
-        download = Download(self.ahttp, self._get_download_url(studip_file), local_dest, chunk_size)
-        await download.start()
+        try:
+            download = Download(self.ahttp, self._get_download_url(studip_file), local_dest, chunk_size)
+            await download.start()
+        except:
+            log.warning("Download %s -> %s could not be started", studip_file, local_dest, exc_info=True)
+            raise
         old_completed_future = download.completed
 
         async def await_completed():

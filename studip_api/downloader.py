@@ -101,15 +101,22 @@ class Download(object):
         assert self.total_length >= 0, "tried to fork Download that wasn't started"
         fork.total_length = self.total_length
         fork.aiofile = await aiofiles.open(self.local_path, "wb", buffering=0)
+        retried = kept = 0
 
         def retry_range(rnge, future):
+            nonlocal retried, kept
             if future.cancelled() or future.exception():
+                retried += 1
                 return asyncio.ensure_future(fork.download_range(rnge))
             else:
+                kept += 1
                 return future
 
         try:
             fork.parts = [(r, retry_range(r, f)) for r, f in self.parts]
+            log.debug("Forked download of %s, expecting %s bytes split into %s parts "
+                      "(of which %s were kept and %s will be retried)",
+                      fork.local_path, fork.total_length, len(fork.parts), kept, retried)
         except:
             fork.aiofile.close()
             raise
