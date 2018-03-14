@@ -28,7 +28,7 @@ def get_url_field(url, field):
 
 
 def get_file_id_from_url(url):
-    return re.findall("/studip/dispatch\.php/course/files/index/([a-z0-9]+)\?", url)[0]
+    return re.findall("/studip/dispatch\.php/(course/files/index|file/details)/([a-z0-9]+)\?", url)[0][1]
 
 
 def parse_date(date: str):
@@ -191,7 +191,13 @@ def parse_file_list_index(html, course: Course, folder_info: Optional[Folder]):
                 continue
             tds = tr.find_all("td")
 
-            fid = tds[0].find("input", class_="document-checkbox").attrs["value"]
+            checkbox = tds[0].find("input", class_="document-checkbox")
+            if not checkbox:
+                warnings.warn("Can't download file %s in folder %s, trying to get data anyways" % (trid, folder))
+                # TODO mark file as broken
+                fid = get_file_id_from_url(tds[6].find('a', {"data-dialog": "1"}).attrs["href"])
+            else:
+                fid = checkbox.attrs["value"]
             icon = tds[1].find("img")
             name = tds[2].text.strip()
             size = int(tds[3].attrs['data-sort-value'])
