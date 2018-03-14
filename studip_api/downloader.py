@@ -126,6 +126,7 @@ class Download(object):
 
     async def fetch_total_length(self):
         async with self.ahttp.head(self.url) as r:
+            r.raise_for_status()
             accept_ranges = r.headers.get("Accept-Ranges", "")
             if accept_ranges != "bytes":
                 log.debug("Server is not indicating Accept-Ranges for file download:\n%s\n%s",
@@ -145,6 +146,7 @@ class Download(object):
         async with self.ahttp.get(self.url, headers={
             "Range": "bytes={0}-{1}".format(byte_range.start, byte_range.stop)
         }) as resp:
+            resp.raise_for_status()
             actual_range = self._extract_range(resp, byte_range)
 
             offset = byte_range.start

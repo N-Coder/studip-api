@@ -75,6 +75,7 @@ class StudIPSession(object):
     async def do_login(self, user_name, password):
         try:
             async with self.ahttp.get(self._studip_url("/studip/index.php?again=yes&sso=shib")) as r:
+                r.raise_for_status()
                 post_url = self.parser.parse_login_form(await r.text())
         except (ClientError, ParserError) as e:
             raise LoginError("Could not initialize Shibboleth SSO login") from e
@@ -88,12 +89,14 @@ class StudIPSession(object):
                         "uApprove.consent-revocation": "",
                         "_eventId_proceed": ""
                     }) as r:
+                r.raise_for_status()
                 form_data = self.parser.parse_saml_form(await r.text())
         except (ClientError, ParserError) as e:
             raise LoginError("Shibboleth SSO login failed") from e
 
         try:
             async with self.ahttp.post(self._studip_url("/Shibboleth.sso/SAML2/POST"), data=form_data) as r:
+                r.raise_for_status()
                 await r.text()
                 if not r.url.path.startswith("/studip"):
                     raise LoginError("Invalid redirect after Shibboleth SSO login to %s" % r.url)
@@ -102,6 +105,7 @@ class StudIPSession(object):
 
     async def get_semesters(self) -> List[Semester]:
         async with self.ahttp.get(self._studip_url("/studip/dispatch.php/my_courses")) as r:
+            r.raise_for_status()
             selected_semester, selected_ansicht = self.parser.parse_user_selection(await r.text())
             self._user_selected_semester = self._user_selected_semester or selected_semester
             self._user_selected_ansicht = self._user_selected_ansicht or selected_ansicht
@@ -133,6 +137,7 @@ class StudIPSession(object):
         async with self.ahttp.post(
                 self._studip_url("/studip/dispatch.php/my_courses/set_semester"),
                 data={"sem_select": semester}) as r:
+            r.raise_for_status()
             selected_semester, selected_ansicht = self.parser.parse_user_selection(await r.text())
             assert selected_semester == semester, "Tried to select semester %s, but Stud.IP delivered semester %s" % \
                                                   (semester, selected_semester)
@@ -143,6 +148,7 @@ class StudIPSession(object):
         async with self.ahttp.post(
                 self._studip_url("/studip/dispatch.php/my_courses/store_groups"),
                 data={"select_group_field": ansicht}) as r:
+            r.raise_for_status()
             selected_semester, selected_ansicht = self.parser.parse_user_selection(await r.text())
             assert selected_ansicht == ansicht, "Tried to select ansicht %s, but Stud.IP delivered ansicht %s" % \
                                                 (ansicht, selected_ansicht)
@@ -170,18 +176,21 @@ class StudIPSession(object):
 
     async def get_course_files(self, course: Course) -> Folder:
         async with self.ahttp.get(self._studip_url("/studip/dispatch.php/course/files/index?cid=" + course.id)) as r:
+            r.raise_for_status()
             return self.parser.parse_file_list_index(await r.text(), course, None)
 
     async def get_folder_files(self, folder: Folder) -> Folder:
         async with self.ahttp.get(
                 self._studip_url("/studip/dispatch.php/course/files/index/%s?cid=%s" % (folder.id, folder.course.id))
         ) as r:
+            r.raise_for_status()
             return self.parser.parse_file_list_index(await r.text(), folder.course, folder)
 
     async def get_file_info(self, file: File) -> File:
         async with self.ahttp.get(
                 self._studip_url("/studip/dispatch.php/file/details/%s?cid=%s" % (file.id, file.course.id))
         ) as r:
+            r.raise_for_status()
             return self.parser.parse_file_details(await r.text(), file)
 
     async def download_file_contents(self, studip_file: File, local_dest: str = None,
