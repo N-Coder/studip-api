@@ -51,7 +51,8 @@ class StudIPSession(object):
         self.ahttp = aiohttp.ClientSession(connector=connector, loop=self._loop,
                                            read_timeout=http_args.pop("read_timeout"),
                                            conn_timeout=http_args.pop("conn_timeout"),
-                                           cookies=http_args.pop("cookies", None))
+                                           cookies=http_args.pop("cookies", None),
+                                           trace_configs=http_args.pop("trace_configs", None))
         if http_args:
             raise ValueError("Unknown http_args %s", http_args)
 
