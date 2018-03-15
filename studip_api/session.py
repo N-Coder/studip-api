@@ -205,6 +205,7 @@ class StudIPSession(object):
             raise
         old_completed_future = download.completed
 
+        # FIXME won't be called if Download is forked -> move to copyable callback in Download
         async def await_completed():
             try:
                 ranges = await old_completed_future
