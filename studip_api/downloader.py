@@ -2,13 +2,14 @@ import asyncio
 import logging
 import os
 import re
-from typing import List, Tuple
+from typing import Callable, Coroutine, List, Tuple, Union
 
 import aiofiles
 import aiohttp
 import attr
 import more_itertools
 from aiofiles.threadpool import AsyncFileIO
+from attr import Factory
 from cached_property import cached_property
 
 log = logging.getLogger("studip_api.Download")
@@ -26,6 +27,7 @@ class Download(object):
     aiofile = attr.ib(init=False, default=None)  # type: AsyncFileIO
     parts = attr.ib(init=False, default=None)  # type: List[Tuple[range, asyncio.Future[range]]]
     completed = attr.ib(init=False, default=None)  # type: asyncio.Future[List[range]]
+    on_completed = attr.ib(default=Factory(list))  # type: List[Callable[[Download, Union[List[range], Exception]],Coroutine[None]]]
 
     @cached_property
     def write_lock(self) -> asyncio.Lock:
@@ -68,7 +70,12 @@ class Download(object):
             full_range_future.set_result(full_range)
             self.parts = [(full_range, full_range_future)]
             self.completed = self.loop.create_future()
-            self.completed.set_result(full_range)
+            try:
+                self.__on_completed(full_range)
+                self.completed.set_result(full_range)
+            except Exception as e:
+                self.completed.set_exception(e)
+                raise
 
         log.debug("Loaded completed download %s containing %s bytes", self.local_path, self.total_length)
 
@@ -77,9 +84,23 @@ class Download(object):
             completed_ranges = await asyncio.gather(*(f for r, f in self.parts))
             log.debug("Finished download of %s, expecting %s bytes split into %s parts",
                       self.local_path, self.total_length, len(self.parts))
+            await self.__on_completed(completed_ranges)
             return completed_ranges
+        except Exception as e:
+            # XXX if the exception originated from a callback, this will call all the callbacks again
+            await self.__on_completed(e)
+            raise
         finally:
             await self.aiofile.close()
+
+    async def __on_completed(self, result):
+        for cb in self.on_completed:
+            try:
+                await cb(self, result)
+            except Exception as e:
+                log.warning("Download completed callback %s raised exception %s, marking Download %s as failed.",
+                            cb, e, self, exc_info=True)
+                raise
 
     async def start(self):
         self.total_length = await self.fetch_total_length()
@@ -89,7 +110,7 @@ class Download(object):
             await self.aiofile.truncate(self.total_length)
             ranges = list(more_itertools.sliced(range(self.total_length), self.chunk_size))
             # FIXME this starts a lot of parallel downloads, which will timeout waiting for the few connections from the pool
-            # FIXME individual parts can't be retried, but will fail the whole download and retrying the whole Download fails because fork() doesn't copy everything
+            # FIXME individual parts can't be retried, but will fail the whole download
             self.parts = [(r, asyncio.ensure_future(self.download_range(r))) for r in ranges]
             log.debug("Started download of %s, expecting %s bytes split into %s parts",
                       self.local_path, self.total_length, len(self.parts))
@@ -103,6 +124,7 @@ class Download(object):
         assert self.total_length >= 0, "tried to fork Download that wasn't started"
         fork.total_length = self.total_length
         fork.aiofile = await aiofiles.open(self.local_path, "wb", buffering=0)
+        fork.on_completed.extend(self.on_completed)
         retried = kept = 0
 
         def retry_range(rnge, future):
@@ -141,6 +163,7 @@ class Download(object):
                 log.debug("Extracted Content-Length from Content-Range: %s => %s", match,
                           match.groups() if match else "()")
                 total_length = match.group(3)
+            assert total_length, "Could not extract total file length from response %s" % repr(Download)
             total_length = int(total_length)
         return total_length
 

@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 import time
-from typing import List
+from typing import List, Union
 from urllib.parse import urlencode
 from weakref import WeakSet
 
@@ -196,27 +196,19 @@ class StudIPSession(object):
 
     async def download_file_contents(self, studip_file: File, local_dest: str = None,
                                      chunk_size: int = 1024 * 256) -> Download:
-        log.info("Starting download %s -> %s", studip_file, local_dest)
-        try:
-            download = Download(self.ahttp, self._get_download_url(studip_file), local_dest, chunk_size)
-            await download.start()
-        except:
-            log.warning("Download %s -> %s could not be started", studip_file, local_dest, exc_info=True)
-            raise
-        old_completed_future = download.completed
 
-        # FIXME won't be called if Download is forked -> move to copyable callback in Download
-        async def await_completed():
-            try:
-                ranges = await old_completed_future
+        async def on_completed(download, result: Union[List[range], Exception]):
+            if isinstance(result, Exception):
+                log.warning("Download %s -> %s failed", studip_file, local_dest, exc_info=True)
+            else:
                 log.info("Completed download %s -> %s", studip_file, local_dest)
 
                 val = 0
-                for r in ranges:
-                    assert r.start <= val, "Non-connected ranges: %s" % ranges
+                for r in result:
+                    assert r.start <= val, "Non-connected ranges: %s" % result
                     val = r.stop
                 assert val == download.total_length, "Completed ranges %s don't cover file length %s" % \
-                                                     (ranges, download.total_length)
+                                                     (result, download.total_length)
 
                 if studip_file.changed:
                     timestamp = time.mktime(studip_file.changed.timetuple())
@@ -225,12 +217,16 @@ class StudIPSession(object):
                     log.warning("Can't set timestamp of file %s :: %s, because the value wasn't loaded from Stud.IP",
                                 studip_file, local_dest)
 
-                return ranges
-            except:
-                log.warning("Download %s -> %s failed", studip_file, local_dest, exc_info=True)
-                raise
+                return result
 
-        download.completed = asyncio.ensure_future(await_completed())
+        log.info("Starting download %s -> %s", studip_file, local_dest)
+        try:
+            download = Download(self.ahttp, self._get_download_url(studip_file), local_dest, chunk_size)
+            download.on_completed.append(on_completed)
+            await download.start()
+        except:
+            log.warning("Download %s -> %s could not be started", studip_file, local_dest, exc_info=True)
+            raise
         return download
 
     def _get_download_url(self, studip_file):
