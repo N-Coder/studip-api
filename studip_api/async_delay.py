@@ -94,9 +94,9 @@ class DelayLatch(object):
         return self._task and self._task.cancelled()
 
     async def __delayed_reopen_task(self):
-        while self.time_fun() < self.run_at:
+        while self.time_fun() < self._run_at:
             assert self._task == Task.current_task(), "%s: %s != %s" % (self, self._task, Task.current_task())
-            delta = self.run_at - self.time_fun()
+            delta = self._run_at - self.time_fun()
             log.debug("%s blocking %s s until %s", self, delta, self._run_at)
             try:
                 await self.sleep_fun(delta)
@@ -113,7 +113,6 @@ class DelayLatch(object):
 @attr.s()
 class DeferredTask(object):
     run = attr.ib(default=None)  # type: Callable[[],Coroutine]
-    exc_handler = attr.ib(default=None)  # type: Callable[[Exception],Coroutine]
 
     trigger_delay = attr.ib(default=10)  # type: int
     trigger_latch = attr.ib(default=Factory(DelayLatch))  # type: DelayLatch
@@ -122,12 +121,14 @@ class DeferredTask(object):
 
     @run.validator
     def __check_run(self, attribute, value):
-        assert attribute is "run"
-        if self.run and value:
-            raise ValueError("Can't set run method to %s via constructor argument as %s already provides a run method: %s",
-                             value, self, self.run)
+        assert attribute.name is "run"
+        if self.run and value and self.run is not value:
+            raise ValueError("Can't set run method to %s via constructor argument as %s already provides a run method: %s" %
+                             (value, self, self.run))
         if not self.run and not value:
-            raise ValueError("No run method provided for %s %s", type(self), self)
+            raise ValueError("No run method provided for %s %s" % (type(self), self))
+        if not asyncio.iscoroutinefunction(self.run or value):
+            raise ValueError("run method must be a coroutine function")
 
     @trigger_latch.validator
     def __check_latch(self, attribute, value):

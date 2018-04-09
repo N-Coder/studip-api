@@ -119,12 +119,12 @@ class StudIPSession(object):
 
         async with self._semester_select_lock:
             change_ansicht = self._user_selected_ansicht != "sem_number"
-            if change_ansicht:
-                await self.__select_ansicht("sem_number")
-
             change_semester = self._user_selected_semester != semester.id
             if change_semester or change_ansicht:
                 self._reset_selections_task.defer()
+
+            if change_ansicht:
+                await self.__select_ansicht("sem_number")
 
             return list(self.parser.parse_course_list(await self.__select_semester(semester.id), semester))
 
