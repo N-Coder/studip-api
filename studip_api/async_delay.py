@@ -6,7 +6,7 @@ from typing import Callable, Coroutine
 import attr
 from attr import Factory
 
-log = logging.getLogger("studip_fuse.async_delay")
+log = logging.getLogger("studip_api.async_delay")
 
 
 async def await_idle(delay=0, max_badness=5, sleep_time=10):
