@@ -4,12 +4,12 @@ import os
 import time
 from typing import List, Union
 from urllib.parse import urlencode
-from weakref import WeakSet
 
 import aiohttp
 import attr
 from aiohttp import ClientError
 
+from studip_api.async_delay import DeferredTask, DelayLatch, await_idle
 from studip_api.downloader import Download
 from studip_api.model import Course, File, Folder, Semester
 from studip_api.parsers import Parser, ParserError
@@ -35,13 +35,13 @@ class StudIPSession(object):
     _loop = attr.ib()  # type: asyncio.AbstractEventLoop
 
     def __attrs_post_init__(self):
-        self._user_selected_semester = None  # type: Semester
-        self._user_selected_ansicht = None  # type: str
-        self._needs_reset_at = False  # type: int
-        self._semester_select_lock = asyncio.Lock()
-        self._background_tasks = WeakSet()  # TODO better management of (failing of) background tasks
         if not self._loop:
             self._loop = asyncio.get_event_loop()
+        self._user_selected_semester = None  # type: Semester
+        self._user_selected_ansicht = None  # type: str
+        self._semester_select_lock = asyncio.Lock(loop=self._loop)
+        self._reset_selections_task = DeferredTask(
+            run=self.__reset_selections, trigger_latch=DelayLatch(sleep_fun=await_idle))
 
         http_args = dict(self._http_args)
         connector = aiohttp.TCPConnector(loop=self._loop, limit=http_args.pop("limit"),
@@ -60,9 +60,7 @@ class StudIPSession(object):
 
     async def close(self):
         try:
-            for task in self._background_tasks:
-                task.cancel()
-            await self.__reset_selections(force=True)
+            await self._reset_selections_task.finalize()
         finally:
             if self.ahttp:
                 await self.ahttp.close()
@@ -126,10 +124,7 @@ class StudIPSession(object):
 
             change_semester = self._user_selected_semester != semester.id
             if change_semester or change_ansicht:
-                self._needs_reset_at = self._loop.time() + 9
-                self._background_tasks.add(
-                    self._loop.call_later(10, lambda: asyncio.ensure_future(self.__reset_selections(quiet=True)))
-                )
+                self._reset_selections_task.defer()
 
             return list(self.parser.parse_course_list(await self.__select_semester(semester.id), semester))
 
@@ -155,25 +150,15 @@ class StudIPSession(object):
                                                 (ansicht, selected_ansicht)
             return await r.text()
 
-    async def __reset_selections(self, force=False, quiet=False):
-        try:
-            async with self._semester_select_lock:
-                if not self.ahttp or self.ahttp.closed:
-                    return
-                if not force and (not self._needs_reset_at or self._needs_reset_at > self._loop.time()):
-                    return
+    async def __reset_selections(self):
+        async with self._semester_select_lock:
+            if not self.ahttp or self.ahttp.closed:
+                return
 
-                if self._user_selected_semester:
-                    await self.__select_semester(self._user_selected_semester)
-                if self._user_selected_ansicht:
-                    await self.__select_ansicht(self._user_selected_ansicht)
-
-                self._needs_reset_at = False
-        except:
-            if quiet:
-                log.warning("Could not reset semester selection", exc_info=True)
-            else:
-                raise
+            if self._user_selected_semester:
+                await self.__select_semester(self._user_selected_semester)
+            if self._user_selected_ansicht:
+                await self.__select_ansicht(self._user_selected_ansicht)
 
     async def get_course_files(self, course: Course) -> Folder:
         async with self.ahttp.get(self._studip_url("/studip/dispatch.php/course/files/index?cid=" + course.id)) as r:
