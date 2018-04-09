@@ -85,8 +85,9 @@ class StudIPSession(object):
                     data={
                         "j_username": user_name,
                         "j_password": password,
-                        "uApprove.consent-revocation": "",
-                        "_eventId_proceed": ""
+                        "donotcache": "",
+                        "_shib_idp_revokeConsent": "false",
+                        "_eventId_proceed": ""  # set to '1' after displaying expired password warning
                     }) as r:
                 r.raise_for_status()
                 form_data = self.parser.parse_saml_form(await r.text())

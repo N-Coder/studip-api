@@ -108,12 +108,19 @@ class Parser(object):
         soup = BeautifulSoup(html, 'lxml')
         saml_fields = ['RelayState', 'SAMLResponse']
         form_data = {}
-        p = soup.find('p')
-        if 'class' in p.attrs and 'form-error' in p.attrs['class']:
-            raise ParserError("Error in Request: '%s'" % p.text, soup)
+        p_error = soup.find('p', class_='form-error')
+        if p_error:
+            raise ParserError("Error in Request: '%s'" % p_error.text, soup)
         for input in soup.find_all('input'):
             if 'name' in input.attrs and 'value' in input.attrs and input.attrs['name'] in saml_fields:
                 form_data[input.attrs['name']] = input.attrs['value']
+        if not all(field in form_data.keys() for field in saml_fields):
+            header = soup.find("header")
+            if header:
+                text = header.text.strip()
+                if text != "Central Authentication Service":
+                    raise ParserError("Could not extract SAMLResponse: '%s'" % text, soup)
+            raise ParserError("Could not extract SAMLResponse", soup)
 
         return form_data
 
