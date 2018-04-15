@@ -21,6 +21,7 @@ if __name__ == "__main__":
         install_requires=[
             "more_itertools",
             "attrs",
+            "cattrs",
             "asyncio",
             "aiofiles",
             "aiohttp",

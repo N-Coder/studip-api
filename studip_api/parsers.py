@@ -1,22 +1,21 @@
 import re
 import urllib.parse as urlparse
 import warnings
-from datetime import datetime
-from typing import Optional
+from typing import Iterable, List
 
 import attr
+import cattr
 from bs4 import BeautifulSoup
 
 from studip_api import model
+from studip_api.model import Course, File, Semester
 
-__all__ = ["ParserError", "Parser", "reuse_folder"]
+__all__ = ["ParserError", "Parser"]
 
 DUPLICATE_TYPE_RE = re.compile(r'^(?P<type>(Plenarü|Tutorü|Ü)bung(en)?|Tutorium|Praktikum'
                                + r'|(Obers|Haupts|S)eminar|Lectures?|Exercises?)(\s+(f[oü]r|on|zu[rm]?|i[nm]|auf))?'
                                + r'\s+(?P<name>.+)')
 COURSE_NAME_TYPE_RE = re.compile(r'(.*?)\s*\(\s*([^)]+)\s*\)\s*$')
-
-DATE_FORMATS = ['%d.%m.%Y %H:%M:%S', '%d/%m/%y %H:%M:%S']
 
 
 def compact(str):
@@ -33,16 +32,6 @@ def get_file_id_from_url(url):
     return re.findall("/studip/dispatch\.php/(course/files/index|file/details)/([a-z0-9]+)\?", url)[0][1]
 
 
-def parse_date(date: str):
-    exc = None
-    for fmt in DATE_FORMATS:
-        try:
-            return datetime.strptime(date, fmt)
-        except ValueError as e:
-            exc = e
-    raise ParserError('Invalid date format') from exc
-
-
 def find_message(soup):
     mb = soup.find("div", class_="messagebox")
     if mb:
@@ -52,25 +41,6 @@ def find_message(soup):
             mbb.decompose()
         return mb.attrs["class"].remove("messagebox"), " ".join(mb.stripped_strings)
     return None, None
-
-
-def reuse_folder(reused_folder, id, course, parent, name, contents):
-    assert id == reused_folder.id, \
-        "can't reuse folder %s with ID %s for a folder with different ID %s" % \
-        (reused_folder, reused_folder.id, id)
-    assert course == reused_folder.course, \
-        "can't reuse folder %s with course %s for a folder with different course %s" % \
-        (reused_folder, reused_folder.course, course)
-    assert (parent == reused_folder.parent) or (parent == reused_folder.parent.id), \
-        "can't reuse folder %s with parent %s for a folder with different parent %s" % \
-        (reused_folder, reused_folder.parent, parent)
-    assert name == reused_folder.name or not reused_folder.name, \
-        "can't reuse folder %s with name %s for a folder with different name %s" % \
-        (reused_folder, reused_folder.name, name)
-
-    folder = reused_folder
-    folder.contents = contents
-    return folder
 
 
 @attr.s(str=True, hash=False)
@@ -90,11 +60,7 @@ class ParserError(Exception):
 
 @attr.s()
 class Parser(object):
-    SemesterFactory = attr.ib(default=model.Semester)  # TODO rename
-    CourseFactory = attr.ib(default=model.Course)
-    FileFactory = attr.ib(default=model.File)
-    FolderFactory = attr.ib(default=model.Folder)
-    ReusedFolderFactory = attr.ib(default=reuse_folder)
+    converter = attr.ib(default=cattr.global_converter)  # type: cattr.Converter
 
     def parse_login_form(self, html):
         soup = BeautifulSoup(html, 'lxml')
@@ -139,17 +105,18 @@ class Parser(object):
 
         return selected_semester, get_url_field(selected_ansicht, "select_group_field")
 
-    def parse_semester_list(self, html):
+    def parse_semester_list(self, html) -> Iterable[Semester]:
         soup = BeautifulSoup(html, 'lxml')
 
         for item in soup.find_all('select', {'name': 'sem_select'}):
             options = item.find('optgroup').find_all('option')
             for i, option in enumerate(options):
-                yield self.SemesterFactory(
-                    id=option.attrs['value'], name=compact(option.contents[0]), order=len(options) - 1 - i
+                yield self.converter.structure(
+                    dict(id=option.attrs['value'], name=compact(option.contents[0]), order=len(options) - 1 - i),
+                    Semester
                 )
 
-    def parse_course_list(self, html, semester: model.Semester):
+    def parse_course_list(self, html, semester: model.Semester) -> Iterable[Course]:
         soup = BeautifulSoup(html, 'lxml')
         current_number = semester_str = None
         invalid_semester = found_course = False
@@ -180,11 +147,13 @@ class Parser(object):
                         course_type = match.group("type")
                         name = match.group("name")
                     found_course = True
-                    yield self.CourseFactory(
-                        id=get_url_field(link['href'], 'auswahl').strip(),
-                        semester=semester,
-                        number=current_number,
-                        name=name, type=course_type
+                    yield self.converter.structure(
+                        dict(
+                            id=get_url_field(link['href'], 'auswahl').strip(),
+                            semester=semester,
+                            number=current_number,
+                            name=name, type=course_type
+                        ), Course
                     )
                     break
 
@@ -192,38 +161,44 @@ class Parser(object):
             raise ParserError("Only found courses for %s while searching for the courses for %s"
                               % (semester_str, semester.name), soup)
 
-    def parse_file_list_index(self, html, course: model.Course, folder_info: Optional[model.Folder]):
+    def _parse_file_list(self, html):
         soup = BeautifulSoup(html, 'lxml')
-        table = soup.find("table", class_="documents")
-        if not table:
+        file_table = soup.find("table", class_="documents")
+        if not file_table:
             msg = "Couldn't find document table. "
             clazz, error = find_message(soup)
             if error:
                 msg += error
             raise ParserError(msg, soup)
-        folder_id = table.attrs["data-folder_id"]
 
-        caption_paths = table.find("caption").find("div", class_="caption-container").find_all("a")
+        folder_id = file_table.attrs["data-folder_id"]
+        caption_paths = file_table.find("caption").find("div", class_="caption-container").find_all("a")
         paths = [(get_file_id_from_url(a.attrs["href"]), a.text.strip()) for a in caption_paths]
 
         if paths[-1][0] != folder_id:
             raise ParserError("path %s doesn't end with folder_id %s" % (paths, folder_id), soup)
         is_root = len(paths) == 1
         folder_name = paths[-1][1]
+        assert folder_id == paths[-1][0]
         parent_folder_id = paths[-2][0] if not is_root else None
 
-        files = []
-        if folder_info:
-            folder = self.ReusedFolderFactory(
-                reused_folder=folder_info,
-                id=folder_id, course=course, parent=parent_folder_id, name=folder_name, contents=files)
-        else:
-            folder = self.FolderFactory(
-                id=folder_id, course=course, parent=parent_folder_id, name=folder_name, contents=files)
-        assert is_root == folder.is_root
+        return file_table, folder_id, folder_name, is_root, parent_folder_id
 
-        for tbody in table.find_all("tbody"):
-            type = {"subfolders": self.FolderFactory, "files": self.FileFactory}[tbody.attrs["class"][0]]
+    def parse_course_root_file(self, html, course: model.Course) -> File:
+        file_table, folder_id, folder_name, is_root, parent_folder_id = self._parse_file_list(html)
+        assert is_root
+
+        return self.converter.structure(dict(
+            id=folder_id, name=folder_name, course=course, parent=None, is_folder=True, is_single_child=True
+        ), File)
+
+    def parse_folder_file_list(self, html, parent_folder: File) -> Iterable[File]:
+        file_table, folder_id, folder_name, is_root, parent_folder_id = self._parse_file_list(html)
+        assert is_root or parent_folder_id == parent_folder.id
+
+        files = []
+        for tbody in file_table.find_all("tbody"):
+            is_folder = {"subfolders": True, "files": False}[tbody.attrs["class"][0]]
 
             for tr in tbody.find_all('tr'):
                 trid = tr.attrs.get("id", "")
@@ -231,27 +206,26 @@ class Parser(object):
                     continue
                 tds = tr.find_all("td")
 
+                file_data = dict(is_folder=is_folder, parent=parent_folder, course=parent_folder.course)
+
                 checkbox = tds[0].find("input", class_="document-checkbox")
                 if not checkbox:
-                    warnings.warn("Can't download file %s in folder %s, trying to get data anyways" % (trid, folder))
-                    # TODO mark file as broken
-                    fid = get_file_id_from_url(tds[6].find('a', {"data-dialog": "1"}).attrs["href"])
+                    warnings.warn("Can't download file %s in folder %s, trying to get data anyways" % (trid, parent_folder))
+                    file_data["id"] = get_file_id_from_url(tds[6].find('a', {"data-dialog": "1"}).attrs["href"])
+                    file_data["is_readable"] = False
                 else:
-                    fid = checkbox.attrs["value"]
-                icon = tds[1].find("img")
-                name = tds[2].text.strip()
-                size = int(tds[3].attrs['data-sort-value'])
-                author = tds[4].text.strip()
-                changed = parse_date(tds[5].attrs['title'])
+                    file_data["id"] = checkbox.attrs["value"]
+                    file_data["is_readable"] = True
 
-                files.append(type(id=fid, course=course, parent=folder, name=name, author=author, changed=changed,
-                                  size=size if size >= 0 else None))
+                # icon = tds[1].find("img")
+                file_data["name"] = tds[2].text.strip()
+                file_data["size"] = tds[3].attrs['data-sort-value']
+                file_data["author"] = tds[4].text.strip()
+                file_data["changed"] = tds[5].attrs['title']
+
+                files.append(file_data)
 
         if len(files) == 1:
-            files[0].is_single_child = True
-        assert not any(f.id == folder_id for f in files)
-        return folder
-
-    def parse_file_details(self, html, file):
-        warnings.warn("Not implemented")
-        return file
+            files[0]["is_single_child"] = True
+        assert not any(f["id"] == folder_id for f in files)
+        return self.converter.structure(files, List[File])

@@ -11,7 +11,7 @@ from aiohttp import ClientError
 
 from studip_api.async_delay import DeferredTask, DelayLatch, await_idle
 from studip_api.downloader import Download
-from studip_api.model import Course, File, Folder, Semester
+from studip_api.model import Course, File, Semester
 from studip_api.parsers import Parser, ParserError
 
 log = logging.getLogger("studip_api.StudIPSession")
@@ -161,24 +161,18 @@ class StudIPSession(object):
             if self._user_selected_ansicht:
                 await self.__select_ansicht(self._user_selected_ansicht)
 
-    async def get_course_files(self, course: Course) -> Folder:
+    async def get_course_files(self, course: Course) -> File:
         async with self.ahttp.get(self._studip_url("/studip/dispatch.php/course/files/index?cid=" + course.id)) as r:
             r.raise_for_status()
-            return self.parser.parse_file_list_index(await r.text(), course, None)
+            return self.parser.parse_course_root_file(await r.text(), course)
 
-    async def get_folder_files(self, folder: Folder) -> Folder:
+    async def get_folder_files(self, folder: File) -> List[File]:
+        assert folder.is_folder
         async with self.ahttp.get(
                 self._studip_url("/studip/dispatch.php/course/files/index/%s?cid=%s" % (folder.id, folder.course.id))
         ) as r:
             r.raise_for_status()
-            return self.parser.parse_file_list_index(await r.text(), folder.course, folder)
-
-    async def get_file_info(self, file: File) -> File:
-        async with self.ahttp.get(
-                self._studip_url("/studip/dispatch.php/file/details/%s?cid=%s" % (file.id, file.course.id))
-        ) as r:
-            r.raise_for_status()
-            return self.parser.parse_file_details(await r.text(), file)
+            return list(self.parser.parse_folder_file_list(await r.text(), folder))
 
     async def download_file_contents(self, studip_file: File, local_dest: str = None,
                                      chunk_size: int = 1024 * 256) -> Download:
@@ -216,5 +210,6 @@ class StudIPSession(object):
         return download
 
     def _get_download_url(self, studip_file):
+        assert not studip_file.is_folder
         return self._studip_url("/studip/sendfile.php?force_download=1&type=0&"
                                 + urlencode({"file_id": studip_file.id, "file_name": studip_file.name}))
