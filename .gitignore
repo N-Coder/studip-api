@@ -1,3 +1,7 @@
+.pytest_cache
+test/cookies.pickle
+test/TAPL-SS18.json
+
 *.sw?
 __pycache__
 *.sublime-workspace
