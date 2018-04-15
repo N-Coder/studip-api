@@ -192,9 +192,9 @@ class Parser(object):
             id=folder_id, name=folder_name, course=course, parent=None, is_folder=True, is_single_child=True
         ), File)
 
-    def parse_folder_file_list(self, html, parent_folder: File) -> Iterable[File]:
+    def parse_folder_file_list(self, html, folder: File) -> Iterable[File]:
         file_table, folder_id, folder_name, is_root, parent_folder_id = self._parse_file_list(html)
-        assert is_root or parent_folder_id == parent_folder.id
+        assert (is_root and not parent_folder_id) or (not is_root and folder_id == folder.id)
 
         files = []
         for tbody in file_table.find_all("tbody"):
@@ -206,20 +206,21 @@ class Parser(object):
                     continue
                 tds = tr.find_all("td")
 
-                file_data = dict(is_folder=is_folder, parent=parent_folder, course=parent_folder.course)
+                file_data = dict(is_folder=is_folder, parent=folder, course=folder.course)
 
                 checkbox = tds[0].find("input", class_="document-checkbox")
                 if not checkbox:
-                    warnings.warn("Can't download file %s in folder %s, trying to get data anyways" % (trid, parent_folder))
+                    warnings.warn("Can't download file %s in folder %s, trying to get data anyways" % (trid, folder))
                     file_data["id"] = get_file_id_from_url(tds[6].find('a', {"data-dialog": "1"}).attrs["href"])
-                    file_data["is_readable"] = False
+                    file_data["is_accessible"] = False
                 else:
                     file_data["id"] = checkbox.attrs["value"]
-                    file_data["is_readable"] = True
+                    file_data["is_accessible"] = True
 
                 # icon = tds[1].find("img")
                 file_data["name"] = tds[2].text.strip()
-                file_data["size"] = tds[3].attrs['data-sort-value']
+                size = tds[3].attrs['data-sort-value']
+                file_data["size"] = size if int(size) >= 0 else None
                 file_data["author"] = tds[4].text.strip()
                 file_data["changed"] = tds[5].attrs['title']
 
