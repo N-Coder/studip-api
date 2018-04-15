@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 import aiohttp
 import attr
 from aiohttp import ClientError
+from attr import Factory
 
 from studip_api.async_delay import DeferredTask, DelayLatch, await_idle
 from studip_api.downloader import Download
@@ -25,38 +26,41 @@ class LoginError(StudIPError):
     pass
 
 
-@attr.s(hash=False)
+@attr.s(hash=False, str=False)
 class StudIPSession(object):
-    # TODO clean up attributes of Session class
+    sso_base = attr.ib()  # type: str
+    studip_base = attr.ib()  # type: str
+    http_args = attr.ib()  # type: dict
 
-    _sso_base = attr.ib()  # type: str
-    _studip_base = attr.ib()  # type: str
-    _http_args = attr.ib()  # type: dict
-    _loop = attr.ib()  # type: asyncio.AbstractEventLoop
+    loop = attr.ib(default=None)  # type: asyncio.AbstractEventLoop
+    parser = attr.ib(default=Factory(Parser))  # type:Parser
+    ahttp = attr.ib(default=None)  # type: aiohttp.ClientSession
+
+    _semester_select_lock = attr.ib(init=False, default=None, repr=False)  # type: asyncio.Lock
+    _reset_selections_task = attr.ib(init=False, default=None, repr=False)  # type: DeferredTask
+    _user_selected_semester = attr.ib(init=False, default=None)  # type: Semester
+    _user_selected_ansicht = attr.ib(init=False, default=None)  # type: str
 
     def __attrs_post_init__(self):
-        if not self._loop:
-            self._loop = asyncio.get_event_loop()
-        self._user_selected_semester = None  # type: Semester
-        self._user_selected_ansicht = None  # type: str
-        self._semester_select_lock = asyncio.Lock(loop=self._loop)
+        if not self.loop:
+            self.loop = asyncio.get_event_loop()
+        self._semester_select_lock = asyncio.Lock(loop=self.loop)
         self._reset_selections_task = DeferredTask(
             run=self.__reset_selections, trigger_latch=DelayLatch(sleep_fun=await_idle))
 
-        http_args = dict(self._http_args)
-        connector = aiohttp.TCPConnector(loop=self._loop, limit=http_args.pop("limit"),
-                                         keepalive_timeout=http_args.pop("keepalive_timeout"),
-                                         force_close=http_args.pop("force_close"),
-                                         verify_ssl=http_args.pop("verify_ssl", False))
-        self.ahttp = aiohttp.ClientSession(connector=connector, loop=self._loop,
-                                           read_timeout=http_args.pop("read_timeout"),
-                                           conn_timeout=http_args.pop("conn_timeout"),
-                                           cookies=http_args.pop("cookies", None),
-                                           trace_configs=http_args.pop("trace_configs", None))
+        http_args = dict(self.http_args)
+        if not self.ahttp:
+            connector = aiohttp.TCPConnector(loop=self.loop, limit=http_args.pop("limit"),
+                                             keepalive_timeout=http_args.pop("keepalive_timeout"),
+                                             force_close=http_args.pop("force_close"),
+                                             verify_ssl=http_args.pop("verify_ssl", False))
+            self.ahttp = aiohttp.ClientSession(connector=connector, loop=self.loop,
+                                               read_timeout=http_args.pop("read_timeout"),
+                                               conn_timeout=http_args.pop("conn_timeout"),
+                                               cookies=http_args.pop("cookies", None),
+                                               trace_configs=http_args.pop("trace_configs", None))
         if http_args:
             raise ValueError("Unknown http_args %s", http_args)
-
-        self.parser = Parser()
 
     async def close(self):
         try:
@@ -66,10 +70,10 @@ class StudIPSession(object):
                 await self.ahttp.close()
 
     def _sso_url(self, url):
-        return self._sso_base + url
+        return self.sso_base + url
 
     def _studip_url(self, url):
-        return self._studip_base + url
+        return self.studip_base + url
 
     async def do_login(self, user_name, password):
         try:
@@ -192,7 +196,7 @@ class StudIPSession(object):
 
                 if studip_file.changed:
                     timestamp = time.mktime(studip_file.changed.timetuple())
-                    await self._loop.run_in_executor(None, os.utime, local_dest, (timestamp, timestamp))
+                    await self.loop.run_in_executor(None, os.utime, local_dest, (timestamp, timestamp))
                 else:
                     log.warning("Can't set timestamp of file %s :: %s, because the value wasn't loaded from Stud.IP",
                                 studip_file, local_dest)
@@ -201,7 +205,7 @@ class StudIPSession(object):
 
         log.info("Starting download %s -> %s", studip_file, local_dest)
         try:
-            download = Download(self.ahttp, self._get_download_url(studip_file), local_dest, chunk_size)
+            download = Download(self.ahttp, self.get_download_url(studip_file), local_dest, chunk_size)
             download.on_completed.append(on_completed)
             await download.start()
         except:
@@ -209,7 +213,7 @@ class StudIPSession(object):
             raise
         return download
 
-    def _get_download_url(self, studip_file):
+    def get_download_url(self, studip_file):
         assert not studip_file.is_folder
         return self._studip_url("/studip/sendfile.php?force_download=1&type=0&"
                                 + urlencode({"file_id": studip_file.id, "file_name": studip_file.name}))
