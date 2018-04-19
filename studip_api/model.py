@@ -1,15 +1,20 @@
 import re
 from datetime import datetime
-from typing import Any, Callable, Dict, Optional, Type
+from typing import Any, Callable, Dict, Optional, Tuple, Type
 
 import attr
 import cattr
-from attr import asdict
 
-__all__ = ["ModelClass", "Semester", "Course", "File", "register_datetime_converter", "register_forwardref_converter",
-           "register_model_converter", "ModelConverter"]
+__all__ = ["persist_as_ref", "ModelClass", "Semester", "Course", "File",
+           "register_datetime_converter", "register_forwardref_converter", "register_model_converter", "ModelConverter"]
 
 attrs = attr.s(hash=False, frozen=True)
+
+
+def persist_as_ref(d=None):
+    d = d or {}
+    d["persist_as_ref"] = True
+    return d
 
 
 @attrs
@@ -52,7 +57,7 @@ NUMBER_RE = re.compile(r'^([0-9]+)|([IVXLCDM]+)$')
 
 @attrs
 class Course(ModelClass):
-    semester = attr.ib(type=Semester)
+    semester = attr.ib(type=Semester, metadata=persist_as_ref())
     number = attr.ib(type=str)
     name = attr.ib(type=str)
     type = attr.ib(type=str)
@@ -91,8 +96,8 @@ class Course(ModelClass):
 
 @attrs
 class File(ModelClass):
-    course = attr.ib(type=Course)
-    parent = attr.ib(repr=False, type=Optional["File"])
+    course = attr.ib(type=Course, metadata=persist_as_ref())
+    parent = attr.ib(repr=False, type=Optional["File"], metadata=persist_as_ref())
     name = attr.ib(type=str)
     is_folder = attr.ib(type=bool)
 
@@ -120,15 +125,25 @@ class File(ModelClass):
 
 
 def register_model_converter(outer_conv: cattr.Converter, nested_conv: cattr.Converter,
-                             structure_model_class: Callable[[Any, Type[ModelClass]], ModelClass]) -> cattr.Converter:
-    def unstructure_outer_model_class(obj: ModelClass) -> Dict:
-        return nested_conv.unstructure(asdict(obj, recurse=False))  # use nested_conv for attr.s values
+                             structure_model_class: Callable[[Any, Type[ModelClass]], ModelClass]) \
+        -> Tuple[cattr.Converter, cattr.Converter]:
+    def unstructure_outer_attr_class(obj: ModelClass) -> Dict:
+        attributes = obj.__class__.__attrs_attrs__
+        rv = outer_conv._dict_factory()
+        for a in attributes:
+            name = a.name
+            v = getattr(obj, name)
+            if a.metadata.get("persist_as_ref", False):
+                rv[name] = nested_conv.unstructure(v)
+            else:
+                rv[name] = outer_conv.unstructure(v)
+        return rv
 
     def unstructure_nested_model_class(obj: ModelClass) -> Dict:
         return obj.id  # only write id of nested ModelClass instances
 
     outer_conv.register_structure_hook(ModelClass, structure_model_class)
-    outer_conv.register_unstructure_hook(ModelClass, unstructure_outer_model_class)
+    outer_conv.register_unstructure_hook_func(attr.has, unstructure_outer_attr_class)
     nested_conv.register_structure_hook(ModelClass, structure_model_class)
     nested_conv.register_unstructure_hook(ModelClass, unstructure_nested_model_class)
 
