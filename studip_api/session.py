@@ -26,7 +26,7 @@ class LoginError(StudIPError):
     pass
 
 
-@attr.s(hash=False, str=False)
+@attr.s(hash=False, str=False, repr=False)
 class StudIPSession(object):
     sso_base = attr.ib()  # type: str
     studip_base = attr.ib()  # type: str
@@ -165,7 +165,7 @@ class StudIPSession(object):
             if self._user_selected_ansicht:
                 await self.__select_ansicht(self._user_selected_ansicht)
 
-    async def get_course_files(self, course: Course) -> File:
+    async def get_course_root_file(self, course: Course) -> File:
         async with self.ahttp.get(self._studip_url("/studip/dispatch.php/course/files/index?cid=" + course.id)) as r:
             r.raise_for_status()
             return self.parser.parse_course_root_file(await r.text(), course)
@@ -187,6 +187,7 @@ class StudIPSession(object):
             else:
                 log.info("Completed download %s -> %s", studip_file, local_dest)
 
+                # TODO also validate total_length vs downloaded ranges
                 val = 0
                 for r in result:
                     assert r.start <= val, "Non-connected ranges: %s" % result

@@ -147,7 +147,7 @@ def register_model_converter(outer_conv: cattr.Converter, nested_conv: cattr.Con
     nested_conv.register_structure_hook(ModelClass, structure_model_class)
     nested_conv.register_unstructure_hook(ModelClass, unstructure_nested_model_class)
 
-    return outer_conv
+    return outer_conv, nested_conv
 
 
 def register_forwardref_converter(conv: cattr.Converter) -> cattr.Converter:
@@ -181,7 +181,7 @@ def register_datetime_converter(conv: cattr.Converter) -> cattr.Converter:
                 except ValueError as e:
                     exc = e
 
-        raise ValueError("can't convert non-datetime value %s of type %s" % (data, data.__class__)) from exc
+        raise ValueError("can't convert non-datetime value %s of type %s" % (data, type(data))) from exc
 
     def unstructure_datetime(dtvalue: datetime) -> float:
         return dtvalue.timestamp()
@@ -192,8 +192,9 @@ def register_datetime_converter(conv: cattr.Converter) -> cattr.Converter:
 
 
 def ModelConverter(structure_model_class):
-    return register_model_converter(
+    outer_conv, nested_conv = register_model_converter(
         register_forwardref_converter(register_datetime_converter(cattr.Converter())),
         register_forwardref_converter(register_datetime_converter(cattr.Converter())),
         structure_model_class
     )
+    return outer_conv
