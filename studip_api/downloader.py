@@ -71,7 +71,7 @@ class Download(object):
             self.parts = [(full_range, full_range_future)]
             self.completed = self.loop.create_future()
             try:
-                self.__on_completed(full_range)
+                await self.__on_completed(full_range)
                 self.completed.set_result(full_range)
             except Exception as e:
                 self.completed.set_exception(e)
