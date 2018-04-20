@@ -208,7 +208,7 @@ class Parser(object):
 
                 file_data = dict(is_folder=is_folder, parent=folder, course=folder.course)
 
-                checkbox = tds[0].find("input", class_="document-checkbox")
+                checkbox = tds[0].find("input", class_="studip-checkbox")
                 if not checkbox:
                     warnings.warn("Can't download file %s in folder %s, trying to get data anyways" % (trid, folder))
                     file_data["id"] = get_file_id_from_url(tds[6].find('a', {"data-dialog": "1"}).attrs["href"])
