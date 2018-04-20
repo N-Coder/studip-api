@@ -110,7 +110,7 @@ class Download(object):
             await self.aiofile.truncate(self.total_length)
             ranges = list(more_itertools.sliced(range(self.total_length), self.chunk_size))
             # FIXME this starts a lot of parallel downloads, which will timeout waiting for the few connections from the pool
-            # FIXME individual parts can't be retried, but will fail the whole download
+            # FIXME individual parts can't be retried, but will fail the whole download (maybe use circuit breaker / async cache?)
             self.parts = [(r, asyncio.ensure_future(self.download_range(r))) for r in ranges]
             log.debug("Started download of %s, expecting %s bytes split into %s parts",
                       self.local_path, self.total_length, len(self.parts))

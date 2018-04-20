@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import time
+import warnings
 from typing import List, Union
 from urllib.parse import urlencode
 
@@ -187,13 +188,14 @@ class StudIPSession(object):
             else:
                 log.info("Completed download %s -> %s", studip_file, local_dest)
 
-                # TODO also validate total_length vs downloaded ranges
                 val = 0
                 for r in result:
-                    assert r.start <= val, "Non-connected ranges: %s" % result
+                    if not r.start <= val:
+                        warnings.warn("Non-connected ranges from Download %s: %s" % (download, result))
                     val = r.stop
-                assert val == download.total_length, "Completed ranges %s don't cover file length %s" % \
-                                                     (result, download.total_length)
+                if val != download.total_length:
+                    warnings.warn("Length of downloaded data doesn't equal length reported by Stud.IP for Download %s: %s"
+                                  % (download, result))
 
                 if studip_file.changed:
                     timestamp = time.mktime(studip_file.changed.timetuple())
