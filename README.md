@@ -1,3 +1,5 @@
+## This tool is superseded by the official (publicly-available) [Stud.IP REST API](https://hilfe.studip.de/develop/Entwickler/RESTAPI)
+
 # Stud.IP API
 
 _studip-api_ provides a python3 API to courses and files hosted on the course management tool Stud.IP.
